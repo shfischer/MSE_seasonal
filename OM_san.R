@@ -2,7 +2,6 @@
 ### section ####
 ### ------------------------------------------------------------------------ ###
 
-
 library(FLCore)
 library(FLBRP)
 library(FLife)
@@ -10,19 +9,16 @@ library(ggplot2)
 library(dplyr)
 library(tidyr)
 library(FLasher)
-# remotes::install_github("flr/FLasher", ref = "fix_seasons",
+# remotes::install_github("shfischer/FLasher", ref = "seasons_tmp",
 #                         INSTALL_opts = "--no-multiarch")
-# remotes::install_github("shfischer/FLasher", ref = "fix_seasons",
-#                         INSTALL_opts = "--no-multiarch")
-# remotes::install_github("shfischer/FLasher", ref = "fix_seasons",
-#                         INSTALL_opts = "--no-multiarch")
+### use shfischer/FLasher branch seasons_tmp
 source("funs.R")
-
 
 ### ------------------------------------------------------------------------ ###
 ### load life-history parameters ####
 ### ------------------------------------------------------------------------ ###
 stocks <- read.csv(file = "input/stocks.csv")
+stocks <- read.csv(file = "../../data-limited/MSE_seasonal/input/stocks.csv")
 stocks$t0[is.na(stocks$t0)] <- -0.1
 stocks$s <- 0.75
 
@@ -72,15 +68,13 @@ ggplot() +
         legend.key.width = unit(0.7, "lines"),
         legend.key = element_blank(),
         legend.background = element_blank())
-ggsave("output/plots/san_length.png",
-       width = 8.5, height = 6, units = "cm", dpi = 300, type = "cairo")
-ggsave("output/plots/san_length.pdf",
-       width = 8.5, height = 6, units = "cm")
-
-
+# ggsave("output/plots/san_length.png",
+#        width = 8.5, height = 6, units = "cm", dpi = 300, type = "cairo")
+# ggsave("output/plots/san_length.pdf",
+#        width = 8.5, height = 6, units = "cm")
 
 ### ------------------------------------------------------------------------ ###
-### test 4 seasons ####
+### create seasonal OM (deterministic) ####
 ### ------------------------------------------------------------------------ ###
 nseasons <- 4
 range <- list(min = 0, max = 5, 
@@ -191,8 +185,7 @@ params(sr) <- FLPar(NA, dimnames = list(params = c("a","b"),
                                         season = seq(4), iter = 1))
 params(sr)[,1] <- c(a, b)
 
-
-### test stock projection
+### prepare OM stock
 stk <- as(brp, "FLStock")[, 1:101]
 for (y in 1) stock.n(stk)[, y] <- N0 # do not fill later years -> weird things happen
 stock(stk) <- computeStock(stk)
@@ -205,16 +198,21 @@ discards(stk) <- computeDiscards(stk)
 harvest(stk)[, 1] <- 0
 for (y in 2:101) harvest(stk)[, y] <- sel.
 
+saveRDS(stk, "input/san/stk_seasonal_deterministic.rds")
+saveRDS(sr, "input/san/sr_seasonal_deterministic.rds")
+
+### ------------------------------------------------------------------------ ###
+### projections ####
+### ------------------------------------------------------------------------ ###
 
 # debugonce(fwd, signature = c("FLStock", "missing", "fwdControl"))
-
 
 ### zero fishing
 ctrl <- fwdControl(data.frame(year = rep(2:101, each = 4),
                               season = 1:4,
                               quant = "fbar",
                               value = 0.0))
-stk_fwd0 <- fwd(stk, control = ctrl, sr = sr)
+stk_fwd0 <- fwd(stk, control = ctrl, sr = sr, effort_max = 1e+9)
 ### fish 0.4
 ctrl <- fwdControl(data.frame(year = rep(2:101, each = 4),
                               season = 1:4,
@@ -246,37 +244,45 @@ stk_fwd_ <- fwd(stk, control = ctrl, sr = sr, effort_max = 1e+9)
 plot(window(FLStocks("F=0" = stk_fwd0, "F=0.4" = stk_fwd0.1, "F=1" = stk_fwd1,
                      "F=4" = stk_fwd5), end = 10)) +
   theme_bw()
-ggsave("output/plots/san_check_seasonal_F.png",
-       width = 17, height = 10, units = "cm", dpi = 300, type = "cairo")
-ggsave("output/plots/san_check_seasonal_F.pdf",
-       width = 17, height = 10, units = "cm")
+# ggsave("output/plots/san_check_seasonal_F.png",
+#        width = 17, height = 10, units = "cm", dpi = 300, type = "cairo")
+# ggsave("output/plots/san_check_seasonal_F.pdf",
+#        width = 17, height = 10, units = "cm")
 plot(window(FLStocks("F=0" = stk_fwd0, "F=0.4" = stk_fwd0.1, "F=1" = stk_fwd1,
                      "F=4" = stk_fwd5), start = 95, end = 101)) +
   theme_bw()
 
+### ------------------------------------------------------------------------ ###
 ### find MSY ####
-fishF <- function(stk, sr, fbar, return_all = FALSE) {
-  #browser()
+### ------------------------------------------------------------------------ ###
+
+fishF <- function(stk, sr, quant = c("fbar"), value, 
+                  return_all = FALSE, maxF = 5) {
+  # browser()
   ctrl_tmp <- fwdControl(data.frame(year = rep(2:101, each = 4),
                                     season = 1:4,
-                                    quant = "fbar",
-                                    value = fbar/dim(stk)[4]))
-  stk_fwd_tmp <- fwd(stk, control = ctrl_tmp, sr = sr, effort_max = 1e+9)
+                                    quant = quant,
+                                    value = value/dim(stk)[4]))
+  stk_fwd_tmp <- fwd(stk, control = ctrl_tmp, sr = sr, effort_max = 1e+9,
+                     maxF = maxF)
   # plot(stk_fwd_tmp)
   if (isTRUE(return_all)) {
-    return(list(TSB = median(tsb(stk_fwd_tmp)[, ac(92:101),, 1], na.rm = TRUE),
+    res <- list(TSB = median(tsb(stk_fwd_tmp)[, ac(92:101),, 1], na.rm = TRUE),
                 SSB = median(ssb(stk_fwd_tmp)[, ac(92:101),, 1], na.rm = TRUE),
                 Catch = median(apply(catch(stk_fwd_tmp)[, ac(92:101)], 2, sum), 
                                na.rm = TRUE),
                 Fbar = median(apply(fbar(stk_fwd_tmp)[, ac(92:101)], 2, sum), 
                               na.rm = TRUE),
-                Rec = median(rec(stk_fwd_tmp)[, ac(92:101),, 1], na.rm = TRUE)))
+                Rec = median(rec(stk_fwd_tmp)[, ac(92:101),, 1], na.rm = TRUE))
   } else {
-    return(median(apply(catch(stk_fwd_tmp)[, ac(92:101)], 2, sum), 
-                  na.rm = TRUE))
+    res <- mean(apply(catch(stk_fwd_tmp)[, ac(92:101)], 2, sum), 
+                  na.rm = TRUE)
+    ### use mean so that if stock collapses in last year, objective value is
+    ### reduced
   }
 }
-fishF(stk = stk, sr = sr, fbar = 0, return_all = TRUE)
+fishF(stk = stk, sr = sr, quant = "fbar", value = 0, return_all = TRUE)
+fishF(stk = stk, sr = sr, quant = "catch", value = 0, return_all = TRUE)
 ### run some values
 runs <- lapply(X = seq(0, 5, 0.1), FUN = fishF, stk = stk, sr = sr, return_all = TRUE)
 runs <- do.call(rbind, runs)
@@ -289,12 +295,15 @@ for (i in 1:ncol(runs)) runs[, i] <- unlist(runs[, i])
 saveRDS(runs, file = "output/san_MSY_runs.rds")
 runs <- readRDS("output/san_MSY_runs.rds")
 
-res <- optimise(f = fishF, stk = stk, sr = sr, return_all = FALSE,
+### get MSY with seasonal F target
+res <- optimise(f = fishF, stk = stk, sr = sr, quant = "fbar", return_all = FALSE,
                 interval = c(0, 5),
                 lower = 0, upper = 4,
                 maximum = TRUE,
                 tol = 0.00001)
-MSY_vals <- fishF(stk = stk, sr = sr, fbar = res$maximum, return_all = TRUE)
+saveRDS(res, file = "output/san_MSY_res.rds")
+res <- readRDS("output/san_MSY_res.rds")
+MSY_vals <- fishF(stk = stk, sr = sr, val = res$maximum, return_all = TRUE)
 # $TSB
 # [1] 983.4669
 # $SSB
@@ -305,6 +314,15 @@ MSY_vals <- fishF(stk = stk, sr = sr, fbar = res$maximum, return_all = TRUE)
 # [1] 1.600873
 # $Rec
 # [1] 14414.4
+
+### projection
+ctrl_MSY <- fwdControl(data.frame(year = rep(2:101, each = 4),
+                                       season = 1:4,
+                                       quant = "fbar",
+                                       value = res$maximum/4))
+stk_fwd_MSY <- fwd(stk, control = ctrl_MSY, sr = sr, 
+                   effort_max = 1e+9, maxF = 5)
+plot(stk_fwd_MSY)
 
 refpts <- FLPar(NA, dimnames = list(params = c("virgin","msy", "crash"),
                                     refpt = c("harvest", "yield", "rec", "ssb", 
@@ -335,14 +353,92 @@ runs %>%
         strip.placement = "outside",
         strip.background = element_blank(),
         strip.text = element_text(size = 8))
-ggsave("output/plots/san_MSY.png",
+ggsave("output/plots/san_seasonal_MSY.png",
        width = 17, height = 6, units = "cm", dpi = 300, type = "cairo")
-ggsave("output/plots/san_MSY.pdf",
+ggsave("output/plots/san_seasonal_MSY.pdf",
        width = 17, height = 6, units = "cm")
+
+### ------------------------------------------------------------------------ ###
+### find MSY - with same catch in all seasons ####
+### ------------------------------------------------------------------------ ###
+
+### get MSY with seasonal F target
+res_const <- optimise(f = fishF, stk = stk, sr = sr, quant = "catch", 
+                      return_all = FALSE,
+                      interval = c(0, 1000),
+                      lower = 0, upper = 1000,
+                      maximum = TRUE,
+                      tol = 0.00001)
+saveRDS(res_const, file = "output/san_MSY_cont_catch_res.rds")
+res_const <- readRDS("output/san_MSY_cont_catch_res.rds")
+
+### stats
+MSY_vals_const <- fishF(stk = stk, sr = sr, quant = "catch", 
+                         value = res_const$maximum, return_all = TRUE)
+### projection
+ctrl_MSY_const <- fwdControl(data.frame(year = rep(2:101, each = 4),
+                              season = 1:4,
+                              quant = "catch",
+                              value = 460/4))
+stk_fwd_MSY_const <- fwd(stk, control = ctrl_MSY_const, sr = sr, 
+                         effort_max = 1e+9, maxF = 5)
+plot(stk_fwd_MSY_const)
+plot(window(stk_fwd_MSY_const, start = 50, end = 55))
+plot(window(tsb(stk_fwd_MSY_const), start = 50, end = 55))
+
+### compare Fmsy (constant through year) and MSY (constant through year)
+qnts_MSY <- FLQuants(F_Rec = rec(stk_fwd_MSY),
+                     F_SSB = ssb(stk_fwd_MSY),
+                     F_Catch = catch(stk_fwd_MSY),
+                     F_Fbar = fbar(stk_fwd_MSY),
+                     C_Rec = rec(stk_fwd_MSY_const),
+                     C_SSB = ssb(stk_fwd_MSY_const),
+                     C_Catch = catch(stk_fwd_MSY_const),
+                     C_Fbar = fbar(stk_fwd_MSY_const))
+as.data.frame(window(qnts_MSY, start = 49, end = 51)) %>%
+  separate(col = qname, sep = "_", into = c("target", "quant")) %>%
+  mutate(data = ifelse(quant == "Rec" & season != 1, 0, data)) %>%
+  mutate(data = ifelse(quant == "Rec", data/1000, data),
+         season = as.numeric(as.character(season)),
+         year = as.numeric(as.character(year)),
+         time = year + (season - 1)/4 - 50,
+         target = factor(target, levels = c("F", "C"), 
+                         labels = c("F", "Catch")),
+         quant = factor(quant, levels = c("Rec", "SSB", "Catch", "Fbar"),
+                        labels = c("Recruits [1000s]", "SSB [t]", 
+                                   "Catch [1000t]", "mean F (ages 1-3)"))) %>%
+  # arrange(target, quant, time) %>%
+  #mutate(time = year + (season - 1)/4 - 50) %>%
+  ggplot(aes(x = time, y = data, colour = target, linetype = target)) +
+  geom_line(size = 0.4) +
+  scale_color_brewer(name = "target", palette = "Dark2") + 
+  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75), labels = c(1, 2, 3, 4),
+                     name = "season") +
+  scale_linetype("target") +
+  coord_cartesian(ylim = c(0, NA), xlim = c(0, 0.75), expand = 1) +
+  facet_wrap(~ quant, scales = "free_y", strip.position = "left", nrow = 1) +
+  theme_bw(base_size = 8) +
+  theme(strip.placement = "outside",
+        strip.text.y = element_text(size = 8),
+        strip.background.y = element_blank(),
+        axis.title.y = element_blank(),
+        legend.key.height = unit(0.6, "lines"),
+        legend.position = c(0.9, 0.3),
+        legend.key = element_blank(),
+        legend.background = element_blank())
+ggsave("output/plots/san_MSY_seasonal_F_vs_catch.png",
+       width = 17, height = 5, units = "cm", dpi = 300, type = "cairo")
+ggsave("output/plots/san_MSY_seasonal_F_vs_catch.pdf",
+       width = 17, height = 5, units = "cm")
+
 
 ### ------------------------------------------------------------------------ ###
 ### expand stock ####
 ### ------------------------------------------------------------------------ ###
+# saveRDS(stk, "input/san/stk.rds")
+stk <- readRDS("input/san/stk.rds")
+# saveRDS(sr, "input/san/sr.rds")
+sr <- readRDS("input/san/sr.rds")
 n_iter <- 500
 
 stk_fwd <- propagate(stf(stk, 99), n_iter)
@@ -357,11 +453,25 @@ set.seed(0)
 residuals(sr_fwd) <- rec(stk_fwd) %=% NA_real_
 residuals(sr_fwd)[,,, 1] <- rlnoise(dim(stk_fwd)[6], rec(stk_fwd)[,,, 1] %=% 0, 
                                     sd = 0.6, b = 0)
-saveRDS(sr_fwd, file = "input/san/sr.rds")
+saveRDS(sr_fwd, file = paste0("input/san/sr_", n_iter, ".rds"))
 
 ### ------------------------------------------------------------------------ ###
 ### create fishing histories ####
 ### ------------------------------------------------------------------------ ###
+refpts <- readRDS("input/san/refpts.rds")
+
+### fish at F=Fmsy
+ctrl_fmsy <- FLQuant(c(refpts["msy", "harvest"])/4,
+                     dimnames = list(year = 2:100, season = 1:4))
+ctrl_fmsy <- as(FLQuants(fbar = ctrl_fmsy), "fwdControl")
+stk_fwd_fmsy <- fwd(stk_fwd, control = ctrl_fmsy, sr = sr_fwd, 
+                  deviances = residuals(sr_fwd),# %=% 1,
+                  effort_max = 1e+9)
+plot(window(stk_fwd_fmsy, end = 100))
+plot(window(stk_fwd_fmsy, start = 90, end = 100))
+saveRDS(stk_fwd_fmsy, file = paste0("input/san/stk_fmsy_", n_iter, ".rds"))
+stk_fwd_fmsy <- readRDS(paste0("input/san/stk_fmsy_", n_iter, ".rds"))
+
 
 ### one-way fishing history
 ctrl_ow <- fhist_one_way(n_iter = n_iter, yrs_hist = 100,
@@ -373,11 +483,12 @@ ctrl_ow <- ctrl_ow/4 ### divide by seasons because F is annual
 ctrl_ow <- FLCore::expand(ctrl_ow, season = 1:4)
 ctrl_ow <- as(FLQuants(fbar = ctrl_ow[, -1]), "fwdControl")
 stk_fwd_ow <- fwd(stk_fwd, control = ctrl_ow, sr = sr_fwd, 
-                  deviances = residuals(sr_fwd),
+                  deviances = residuals(sr_fwd),# %=% 1,
                   effort_max = 1e+9)
 plot(window(stk_fwd_ow, end = 100))
 plot(window(stk_fwd_ow, start = 90, end = 100))
-saveRDS(stk_fwd_ow, file = "input/san/stk_ow.rds")
+saveRDS(stk_fwd_ow, file = paste0("input/san/stk_ow_", n_iter, ".rds"))
+stk_fwd_ow <- readRDS(paste0("input/san/stk_ow_", n_iter, ".rds"))
 
 ### random fishing history
 set.seed(2)
@@ -392,10 +503,6 @@ stk_fwd_rnd <- fwd(stk_fwd, control = ctrl_rnd, sr = sr_fwd,
                    effort_max = 1e+9)
 plot(window(stk_fwd_rnd, end = 100), iter = 1:5)
 plot(window(stk_fwd_rnd, start = 90, end = 100), iter = 1:5)
-saveRDS(stk_fwd_rnd, file = "input/san/stk_rnd.rds")
-
-
-
-
-
+saveRDS(stk_fwd_rnd, file = paste0("input/san/stk_rnd_", n_iter, ".rds"))
+stk_fwd_rnd <- readRDS(paste0("input/san/stk_rnd_", n_iter, ".rds"))
 
