@@ -159,7 +159,7 @@ as_ <- function(from) {
 ### ------------------------------------------------------------------------ ###
 mse_hr <- function(om_stk, om_sr, 
                    yrs = 101:125, seasons = 1:4, 
-                   hr = 0.1, lag = 0, interval = 1,
+                   hr = 0.1, lag = 0, catch_interval = 1,
                    verbose = TRUE,
                    effort_max = 1e+9, maxF = 5) {
   #browser()
@@ -171,7 +171,7 @@ mse_hr <- function(om_stk, om_sr,
   
   ids <- seq(from = tab$id[tab$year == min(yrs) & tab$season == min(seasons)],
              to = tab$id[tab$year == max(yrs) & tab$season == max(seasons)], 
-             by = interval)
+             by = catch_interval)
   
   for (id in ids) {
     yr <- tab$year[id]
@@ -192,10 +192,10 @@ mse_hr <- function(om_stk, om_sr,
                            ac(tab$season[id - lag])]
     ### catch target
     advice <- FLQuant(NA,
-                      dimnames = list(year = unique(tab$year[seq(id, id + interval - 1)]),
-                                      season = unique(tab$season[seq(id, id + interval - 1)]),
+                      dimnames = list(year = unique(tab$year[seq(id, id + catch_interval - 1)]),
+                                      season = unique(tab$season[seq(id, id + catch_interval - 1)]),
                                       iter = dimnames(idx)$iter))
-    advice[] <- rep(c(idx * hr), each = interval)
+    advice[] <- rep(c(idx * hr), each = catch_interval)
     ### set target
     ctrl <- as(FLQuants(catch = advice), "fwdControl")
     ### project OM
