@@ -66,9 +66,9 @@
       "RemoteHost": "api.github.com",
       "RemoteRepo": "FLasher",
       "RemoteUsername": "shfischer",
-      "RemoteRef": "fix_seasons",
-      "RemoteSha": "a80828689aae8b3cf3a3ae43d222d5a8c4055674",
-      "Hash": "b51d902e208988db0e73f2c50bd77ff6"
+      "RemoteRef": "seasons_tmp",
+      "RemoteSha": "04f26944de236ff1d577b37fc8948b258d3c3482",
+      "Hash": "be2369c2dd1e21c0430d3d0ea514206c"
     },
     "FLife": {
       "Package": "FLife",
