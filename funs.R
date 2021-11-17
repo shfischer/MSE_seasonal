@@ -221,4 +221,60 @@ mse_loop <- function(MP = "hr",
   return(om_stk)
 }
 
+### ------------------------------------------------------------------------ ###
+### optimise hr or escapement parameters ####
+### ------------------------------------------------------------------------ ###
+
+optimise_MP <- function(MP = "hr", om_stk = stk, om_sr = sr, 
+                        yrs = 101:200, seasons = 1:4, 
+                        target, lag = 0, catch_interval = 1,
+                        verbose = FALSE, stat_yrs = 191:200,
+                        return_all = FALSE, objective_stat = mean,
+                        trace = FALSE, trace_env) {
+  if (isTRUE(trace)) {
+    res_trace_i <- mget("res_trace", envir = trace_env, 
+                        ifnotfound = FALSE)$res_trace
+    if (isFALSE(res_trace_i)) res_trace_i <- list()
+    if (isTRUE(target %in% sapply(res_trace_i, function(x) x$target))) {
+      res_list <- res_trace_i[[which(target == sapply(res_trace_i, 
+                                                     function(x) x$target))[[1]]]]
+      run <- FALSE
+    } else {
+      run <- TRUE
+    }
+  } else {
+    run <- TRUE
+  }
+  if (isTRUE(run)) {
+    res <- mse_loop(MP = MP, om_stk = om_stk, om_sr = om_sr, 
+                    yrs = yrs, seasons = seasons, 
+                    target = target,
+                    lag = lag, catch_interval = catch_interval,
+                    verbose = verbose)
+    res_list <- list(
+      target = target,
+      TSB = median(tsb(res)[, ac(stat_yrs),, 1], na.rm = TRUE),
+      SSB = median(ssb(res)[, ac(stat_yrs),, 1], na.rm = TRUE),
+      Catch = median(apply(catch(res)[, ac(stat_yrs)], 2, sum), na.rm = TRUE),
+      Fbar = median(apply(fbar(res)[, ac(stat_yrs)], 2, sum), na.rm = TRUE),
+      Rec = median(rec(res)[, ac(stat_yrs),, 1], na.rm = TRUE),
+      objective = objective_stat(apply(catch(res)[, ac(stat_yrs)], 2, sum), 
+                                 na.rm = TRUE))
+  }
+  if (isTRUE(trace)) {
+    res_add <- res_list
+    res_trace_i <- append(res_trace_i, list(res_add))
+    res_trace_i <- unique(res_trace_i)
+    assign(value = res_trace_i, x = "res_trace", envir = trace_env)
+  }
+  print(c(unlist(res_list)))
+  
+  if (isTRUE(return_all)) {
+    return(res_list)
+  } else {
+    return(res_list$objective)
+    ### use mean so that if stock collapses in last year, objective value is
+    ### reduced
+  }
+}
 
