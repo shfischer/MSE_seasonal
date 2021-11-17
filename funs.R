@@ -157,11 +157,13 @@ as_ <- function(from) {
 ### ------------------------------------------------------------------------ ###
 ### MSE loop with harvest rate ####
 ### ------------------------------------------------------------------------ ###
-mse_hr <- function(om_stk, om_sr, 
-                   yrs = 101:125, seasons = 1:4, 
-                   hr = 0.1, lag = 0, catch_interval = 1,
-                   verbose = TRUE,
-                   effort_max = 1e+9, maxF = 5) {
+mse_loop <- function(MP = "hr",
+                     om_stk, om_sr, 
+                     yrs = 101:125, seasons = 1:4, 
+                     target = 0,
+                     lag = 0, catch_interval = 1,
+                     verbose = TRUE,
+                     effort_max = 1e+9, maxF = 5) {
   #browser()
   tab <- expand.grid(year = as.numeric(dimnames(om_stk)$year),
                      season = as.numeric(dimnames(om_stk)$season))
@@ -195,7 +197,17 @@ mse_hr <- function(om_stk, om_sr,
                       dimnames = list(year = unique(tab$year[seq(id, id + catch_interval - 1)]),
                                       season = unique(tab$season[seq(id, id + catch_interval - 1)]),
                                       iter = dimnames(idx)$iter))
-    advice[] <- rep(c(idx * hr), each = catch_interval)
+    if (identical(MP, "hr")) {
+      advice[] <- rep(c(idx * target), each = catch_interval)
+    } else if (identical(MP, "escapement")) {
+      ### make sure catch is not negative
+      ### if escapement biomass is below target, advice is zero 
+      advice[] <- rep(pmax(c(idx - target), 0), each = catch_interval)
+      ### fish excess throughout management period
+      advice <- advice/catch_interval
+    } else {
+      stop("unknown MP")
+    }
     ### set target
     ctrl <- as(FLQuants(catch = advice), "fwdControl")
     ### project OM
