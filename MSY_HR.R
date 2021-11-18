@@ -190,17 +190,23 @@ bind_rows(hr_runs %>% mutate(step = "quarterly"),
   mutate(step = factor(step, levels = c("quarterly", "biannual", "annual"))) %>%
   mutate(Rec = Rec/1000) %>%
   mutate(Fbar = ifelse(Fbar > 5, NA, Fbar)) %>%
-  pivot_longer(c(SSB, Catch, Fbar, Rec)) %>%
-  mutate(name = factor(name, levels = c("Rec", "SSB", "Catch", "Fbar"),
-                        labels = c("Recruits [1000s]", "SSB [t]", 
+  pivot_longer(c(SSB, TSB, Catch, Fbar, Rec)) %>%
+  mutate(name = factor(name, levels = c("Rec", "SSB", "TSB", "Catch", "Fbar"),
+                        labels = c("Recruits [1000s]", "SSB [t]", "TSB [t]",
                                    "Catch [1000t]", "mean F (ages 1-3)"))) %>%
   ggplot(aes(x = hr, y = value, colour = step)) +
   geom_line(size = 0.4) +
+  geom_blank(data = 
+               data.frame(name = factor(c("SSB [t]"), 
+                                        levels = c("Recruits [1000s]", "SSB [t]", "TSB [t]",
+                                                   "Catch [1000t]", "mean F (ages 1-3)")),
+                          hr = 0, value = 1000, 
+                          step = "annual")) +
   geom_vline(data = 
     data.frame(hr = c(hr_res$maximum, hr_res_biannual$maximum, 
                       hr_res_annual$maximum),
                step = c("quarterly", "biannual", "annual")),
-    aes(xintercept = hr, colour = step), size = 0.3, linetype = "dotted",
+    aes(xintercept = hr, colour = step), size = 0.3, linetype = "dashed",
     show.legend = FALSE) +
   scale_color_brewer(palette = "Dark2") + 
   # scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75), labels = c(1, 2, 3, 4),
@@ -215,7 +221,7 @@ bind_rows(hr_runs %>% mutate(step = "quarterly"),
         strip.background.y = element_blank(),
         axis.title.y = element_blank(),
         legend.key.height = unit(0.6, "lines"),
-        #legend.position = c(0.9, 0.3),
+        legend.position = c(0.8, 0.25),
         legend.key = element_blank(),
         legend.background = element_blank())
 ggsave("output/plots/san_MSY_HR_step_comparison.png",
@@ -225,17 +231,20 @@ ggsave("output/plots/san_MSY_HR_step_comparison.pdf",
 
 ### compare projections - quarterly, biannual, annual
 qnts <- FLQuants(quarterly_Rec = rec(hr_res_MSY_stk),
-                     quarterly_SSB = ssb(hr_res_MSY_stk),
-                     quarterly_Catch = catch(hr_res_MSY_stk),
-                     quarterly_Fbar = fbar(hr_res_MSY_stk),
-                     biannual_Rec = rec(hr_res_MSY_biannual_stk),
-                     biannual_SSB = ssb(hr_res_MSY_biannual_stk),
-                     biannual_Catch = catch(hr_res_MSY_biannual_stk),
-                     biannual_Fbar = fbar(hr_res_MSY_biannual_stk),
-                     annual_Rec = rec(hr_res_MSY_annual_stk),
-                     annual_SSB = ssb(hr_res_MSY_annual_stk),
-                     annual_Catch = catch(hr_res_MSY_annual_stk),
-                     annual_Fbar = fbar(hr_res_MSY_annual_stk))
+                 quarterly_SSB = ssb(hr_res_MSY_stk),
+                 quarterly_TSB = tsb(hr_res_MSY_stk),
+                 quarterly_Catch = catch(hr_res_MSY_stk),
+                 quarterly_Fbar = fbar(hr_res_MSY_stk),
+                 biannual_Rec = rec(hr_res_MSY_biannual_stk),
+                 biannual_SSB = ssb(hr_res_MSY_biannual_stk),
+                 biannual_TSB = tsb(hr_res_MSY_biannual_stk),
+                 biannual_Catch = catch(hr_res_MSY_biannual_stk),
+                 biannual_Fbar = fbar(hr_res_MSY_biannual_stk),
+                 annual_Rec = rec(hr_res_MSY_annual_stk),
+                 annual_SSB = ssb(hr_res_MSY_annual_stk),
+                 annual_TSB = tsb(hr_res_MSY_annual_stk),
+                 annual_Catch = catch(hr_res_MSY_annual_stk),
+                 annual_Fbar = fbar(hr_res_MSY_annual_stk))
 as.data.frame(window(qnts, start = 149, end = 151)) %>%
   separate(col = qname, sep = "_", into = c("step", "quant")) %>%
   mutate(data = ifelse(quant == "Rec" & season != 1, 0, data)) %>%
@@ -244,18 +253,18 @@ as.data.frame(window(qnts, start = 149, end = 151)) %>%
          year = as.numeric(as.character(year)),
          time = year + (season - 1)/4 - 150,
          step = factor(step, levels = c("quarterly", "biannual", "annual")),
-         quant = factor(quant, levels = c("Rec", "SSB", "Catch", "Fbar"),
-                        labels = c("Recruits [1000s]", "SSB [t]", 
+         quant = factor(quant, levels = c("Rec", "SSB", "TSB", "Catch", "Fbar"),
+                        labels = c("Recruits [1000s]", "SSB [t]", "TSB [t]",
                                    "Catch [1000t]", "mean F (ages 1-3)"))) %>%
   # arrange(step, quant, time) %>%
   #mutate(time = year + (season - 1)/4 - 50) %>%
-  ggplot(aes(x = time, y = data, colour = step, linetype = step)) +
+  ggplot(aes(x = time, y = data, colour = step)) +
   geom_line(size = 0.4) +
   scale_color_brewer(name = "step", palette = "Dark2") + 
   scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75), labels = c(1, 2, 3, 4),
                      name = "season") +
   scale_linetype("step") +
-  coord_cartesian(ylim = c(0, NA), xlim = c(0, 0.75), expand = 1) +
+  coord_cartesian(ylim = c(0, NA), xlim = c(-0.085, 0.835), expand = 1) +
   facet_wrap(~ quant, scales = "free_y", strip.position = "left", nrow = 1) +
   theme_bw(base_size = 8) +
   theme(strip.placement = "outside",
@@ -263,7 +272,7 @@ as.data.frame(window(qnts, start = 149, end = 151)) %>%
         strip.background.y = element_blank(),
         axis.title.y = element_blank(),
         legend.key.height = unit(0.6, "lines"),
-        legend.position = c(0.9, 0.3),
+        legend.position = c(0.08, 0.8),
         legend.key = element_blank(),
         legend.background = element_blank())
 ggsave("output/plots/san_MSY_hr_steps_projection.png",
@@ -318,7 +327,7 @@ esc_runs <- bind_rows(esc_runs,
 saveRDS(esc_runs, "input/san/esc_runs.rds")
 esc_runs <- readRDS("input/san/esc_runs.rds")
 esc_runs %>% 
-  ggplot(aes(x = esc_biomass, y = Catch)) +
+  ggplot(aes(x = target, y = Catch)) +
   geom_line() +
   theme_bw(base_size = 8) +
   geom_vline(xintercept = esc_res$maximum)
@@ -439,4 +448,103 @@ esc_res_MSY_stk_annual <- mse_loop(MP = "escapement",
 plot(esc_res_MSY_stk_annual)
 saveRDS(esc_res_MSY_stk_annual, "input/san/esc_res_MSY_stk_annual.rds")
 esc_res_MSY_stk_annual <- readRDS("input/san/esc_res_MSY_stk_annual.rds")
+
+
+### combine quarterly/biannual/annual
+bind_rows(esc_runs %>% mutate(step = "quarterly"),
+          esc_runs_biannual %>% mutate(step = "biannual"),
+          esc_runs_annual %>% mutate(step = "annual")) %>%
+  mutate(step = factor(step, levels = c("quarterly", "biannual", "annual"))) %>%
+  mutate(Rec = Rec/1000) %>%
+  mutate(Fbar = ifelse(Fbar > 5, NA, Fbar)) %>%
+  pivot_longer(c(TSB, SSB, Catch, Fbar, Rec)) %>%
+  mutate(name = factor(name, levels = c("Rec", "SSB", "TSB", "Catch", "Fbar"),
+                       labels = c("Recruits [1000s]", "SSB [t]", "TSB [t]",
+                                  "Catch [1000t]", "mean F (ages 1-3)"))) %>%
+  ggplot(aes(x = target, y = value, colour = step)) +
+  geom_line(size = 0.4) +
+  geom_blank(data = 
+    data.frame(name = factor(c("SSB [t]"), 
+                             levels = c("Recruits [1000s]", "SSB [t]", "TSB [t]",
+                                        "Catch [1000t]", "mean F (ages 1-3)")),
+                               target = 0, value = 1000, 
+                               step = "annual")) +
+  geom_vline(data = 
+               data.frame(target = c(esc_res$maximum, esc_res_biannual$maximum, 
+                                 esc_res_annual$maximum),
+                          step = c("quarterly", "biannual", "annual")),
+             aes(xintercept = target, colour = step), size = 0.3, 
+             linetype = "dashed",
+             show.legend = FALSE) +
+  scale_color_brewer(palette = "Dark2") + 
+  # scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75), labels = c(1, 2, 3, 4),
+  #                    name = "season") +
+  # scale_linetype("target") +
+  # coord_cartesian(ylim = c(0, NA), xlim = c(0, 0.75), expand = 1) +
+  facet_wrap(~ name, scales = "free_y", strip.position = "left", nrow = 2) +
+  labs(x = "Escapement biomass [t]") +
+  theme_bw(base_size = 8) +
+  theme(strip.placement = "outside",
+        strip.text.y = element_text(size = 8),
+        strip.background.y = element_blank(),
+        axis.title.y = element_blank(),
+        legend.key.height = unit(0.6, "lines"),
+        legend.position = c(0.8, 0.25),
+        legend.key = element_blank(),
+        legend.background = element_blank())
+ggsave("output/plots/san_MSY_esc_step_comparison.png",
+       width = 17, height = 10, units = "cm", dpi = 300, type = "cairo")
+ggsave("output/plots/san_MSY_esc_step_comparison.pdf",
+       width = 17, height = 10, units = "cm")
+
+### compare projections - quarterly, biannual, annual
+qnts <- FLQuants(quarterly_Rec = rec(esc_res_MSY_stk),
+                 quarterly_SSB = ssb(esc_res_MSY_stk),
+                 quarterly_TSB = tsb(esc_res_MSY_stk),
+                 quarterly_Catch = catch(esc_res_MSY_stk),
+                 quarterly_Fbar = fbar(esc_res_MSY_stk),
+                 biannual_Rec = rec(esc_res_MSY_stk_biannual),
+                 biannual_SSB = ssb(esc_res_MSY_stk_biannual),
+                 biannual_TSB = tsb(esc_res_MSY_stk_biannual),
+                 biannual_Catch = catch(esc_res_MSY_stk_biannual),
+                 biannual_Fbar = fbar(esc_res_MSY_stk_biannual),
+                 annual_Rec = rec(esc_res_MSY_stk_annual),
+                 annual_SSB = ssb(esc_res_MSY_stk_annual),
+                 annual_TSB = tsb(esc_res_MSY_stk_annual),
+                 annual_Catch = catch(esc_res_MSY_stk_annual),
+                 annual_Fbar = fbar(esc_res_MSY_stk_annual))
+as.data.frame(window(qnts, start = 149, end = 151)) %>%
+  separate(col = qname, sep = "_", into = c("step", "quant")) %>%
+  mutate(data = ifelse(quant == "Rec" & season != 1, 0, data)) %>%
+  mutate(data = ifelse(quant == "Rec", data/1000, data),
+         season = as.numeric(as.character(season)),
+         year = as.numeric(as.character(year)),
+         time = year + (season - 1)/4 - 150,
+         step = factor(step, levels = c("quarterly", "biannual", "annual")),
+         quant = factor(quant, levels = c("Rec", "SSB", "TSB", "Catch", "Fbar"),
+                        labels = c("Recruits [1000s]", "SSB [t]", "TSB [t]",
+                                   "Catch [1000t]", "mean F (ages 1-3)"))) %>%
+  # arrange(step, quant, time) %>%
+  #mutate(time = year + (season - 1)/4 - 50) %>%
+  ggplot(aes(x = time, y = data, colour = step)) +
+  geom_line(size = 0.4) +
+  scale_color_brewer(name = "step", palette = "Dark2") + 
+  scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75), labels = c(1, 2, 3, 4),
+                     name = "season") +
+  scale_linetype("step") +
+  coord_cartesian(ylim = c(0, NA), xlim = c(-0.085, 0.835), expand = 1) +
+  facet_wrap(~ quant, scales = "free_y", strip.position = "left", nrow = 1) +
+  theme_bw(base_size = 8) +
+  theme(strip.placement = "outside",
+        strip.text.y = element_text(size = 8),
+        strip.background.y = element_blank(),
+        axis.title.y = element_blank(),
+        legend.key.height = unit(0.6, "lines"),
+        legend.position = c(0.08, 0.8),
+        legend.key = element_blank(),
+        legend.background = element_blank())
+ggsave("output/plots/san_MSY_esc_steps_projection.png",
+       width = 17, height = 5, units = "cm", dpi = 300, type = "cairo")
+ggsave("output/plots/san_MSY_esc_steps_projection.pdf",
+       width = 17, height = 5, units = "cm")
 
