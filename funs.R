@@ -127,9 +127,14 @@ mse_loop <- function(MP = "hr",
     ### set target
     ctrl <- as(FLQuants(catch = advice), "fwdControl")
     ### project OM
-    om_stk <- fwd(om_stk, control = ctrl, sr = om_sr,
-                  deviances = residuals(om_sr), effort_max = effort_max, 
-                  maxF = maxF)
+    om_stk_tmp <- fwd(om_stk, control = ctrl, sr = om_sr,
+                      deviances = residuals(om_sr), effort_max = effort_max, 
+                      maxF = maxF)
+    ### insert only values from target years/seasons
+    ### there is a bug in FLasher that previous years/seasons 
+    ### might be overwritten with odd values...
+    om_stk[, ac(ctrl@target$year),, ac(ctrl@target$season)] <- 
+      om_stk_tmp[, ac(ctrl@target$year),, ac(ctrl@target$season)]
     #catch(om_stk)[, ac(yr),, ac(season)]
     #fbar(om_stk)[, ac(yr),, ac(season)]
     if (isTRUE(verbose)) cat("\n")
