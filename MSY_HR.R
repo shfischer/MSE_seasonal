@@ -8,7 +8,7 @@ library(tidyverse)
 
 cl <- makeCluster(10)
 registerDoParallel(cl)
-. <- foreach(1:10) %dopar% {
+. <- foreach(seq(length(cl))) %dopar% {
   source("funs.R")
   library(FLasher)
 }
@@ -27,7 +27,7 @@ plot(stk)
 ### check
 if (FALSE) {
   out <- optimise_MP(om_stk = stk, om_sr = sr, yrs = 101:200, seasons = 1:4, 
-                     hr = 0.1, lag = 0, catch_interval = 1, verbose = TRUE, 
+                     target = 0, lag = 0, catch_interval = 1, verbose = TRUE, 
                      stat_yrs = 191:200, return_all = TRUE)
   out
 }
@@ -36,7 +36,7 @@ hr_vals <- c(seq(0, 0.5, 0.02), 0.25, 0.27, 0.49)
 hr_runs <- foreach(hr = hr_vals) %dopar% {
   optimise_MP(om_stk = stk, om_sr = sr, yrs = 101:200, seasons = 1:4, 
               lag = 0, catch_interval = 1, verbose = FALSE, 
-              stat_yrs = 191:200, return_all = TRUE, hr = hr)
+              stat_yrs = 191:200, return_all = TRUE, target = hr)
 }
 hr_runs <- as.data.frame(do.call(bind_rows, hr_runs))
 hr_runs$hr <- hr_vals
@@ -46,36 +46,38 @@ hr_runs %>%
   geom_line() +
   theme_bw(base_size = 8)
 
+
+trace_env <- new.env()
 ### MSY harvest rate
-hr_res <- optimise(f = optimise_MP, 
+hr_res <- optimise(f = optimise_MP, MP = "hr",
                    om_stk = stk, om_sr = sr, yrs = 101:200, seasons = 1:4, 
                    lag = 0, catch_interval = 1, verbose = FALSE, 
                    stat_yrs = 191:200, return_all = FALSE,
+                   trace = TRUE, trace_env = trace_env,
                    interval = c(0, 0.5),
                    lower = 0, upper = 0.5,
                    maximum = TRUE,
                    tol = 0.00001)
 saveRDS(hr_res, "input/san/hr_res_MSY.rds")
 hr_res <- readRDS("input/san/hr_res_MSY.rds")
+### add MSY run
+hr_runs <- bind_rows(hr_runs,
+                     bind_rows(get("res_trace", envir = trace_env)))
+saveRDS(hr_runs, "input/san/hr_runs.rds")
 hr_runs %>% 
-  ggplot(aes(x = hr, y = Catch)) +
+  ggplot(aes(x = target, y = Catch)) +
   geom_line() +
   theme_bw(base_size = 8) +
   geom_vline(xintercept = hr_res$maximum)
 ### run max catch
-hr_res_MSY <- optimise_MP(om_stk = stk, om_sr = sr, yrs = 101:200, 
-                          seasons = 1:4, hr = hr_res$maximum, lag = 0, 
+hr_res_MSY <- optimise_MP(MP = "hr", om_stk = stk, om_sr = sr, yrs = 101:200, 
+                          seasons = 1:4, target = hr_res$maximum, lag = 0, 
                           catch_interval = 1, verbose = TRUE,  
                           stat_yrs = 191:200, return_all = TRUE)
-### add MSY run
-hr_runs <- bind_rows(hr_runs,
-                     c(unlist(hr_res_MSY), hr = hr_res$maximum))
-saveRDS(hr_runs, "input/san/hr_runs.rds")
-hr_runs <- readRDS("input/san/hr_runs.rds")
 ### run MSY projection and return stock
-hr_res_MSY_stk <- mse_hr(om_stk = stk, om_sr = sr,
+hr_res_MSY_stk <- mse_loop(MP = "hr", om_stk = stk, om_sr = sr,
                          yrs = 101:200, seasons = 1:4,
-                         hr = hr_res$maximum, lag = 0, catch_interval = 1,
+                         target = hr_res$maximum, lag = 0, catch_interval = 1,
                          verbose = TRUE)
 plot(hr_res_MSY_stk)
 saveRDS(hr_res_MSY_stk, "input/san/hr_res_MSY_stk.rds")
@@ -86,47 +88,55 @@ hr_res_MSY_stk <- readRDS("input/san/hr_res_MSY_stk.rds")
 ### run a few values
 hr_vals_annual <- seq(0, 0.3, 0.01)
 hr_runs_annual <- foreach(hr = hr_vals_annual) %dopar% {
-  optimise_MP(om_stk = stk, om_sr = sr, yrs = 101:200, seasons = 1:4, 
+  optimise_MP(MP = "hr", om_stk = stk, om_sr = sr, yrs = 101:200, seasons = 1:4, 
               lag = 0, catch_interval = 4, verbose = FALSE, 
-              stat_yrs = 191:200, return_all = TRUE, hr = hr)
+              stat_yrs = 191:200, return_all = TRUE, target = hr,
+              force_seasonal = TRUE)
 }
 hr_runs_annual <- as.data.frame(do.call(bind_rows, hr_runs_annual))
-hr_runs_annual$hr <- hr_vals_annual
 hr_runs_annual %>% 
-  ggplot(aes(x = hr, y = Catch)) +
+  ggplot(aes(x = target, y = Catch)) +
   geom_line() +
   theme_bw(base_size = 8)
+trace_env <- new.env()
 ### MSY harvest rate
-hr_res_annual <- optimise(f = optimise_MP, 
+hr_res_annual <- optimise(f = optimise_MP, MP = "hr", 
                    om_stk = stk, om_sr = sr, yrs = 101:200, seasons = 1:4, 
                    lag = 0, catch_interval = 4, verbose = FALSE, 
+                   force_seasonal = TRUE,
                    stat_yrs = 191:200, return_all = FALSE,
+                   trace = TRUE, trace_env = trace_env,
                    interval = c(0, 0.22),
                    lower = 0, upper = 0.22,
                    maximum = TRUE,
                    tol = 0.00001)
 saveRDS(hr_res_annual, "input/san/hr_res_MSY_annual.rds")
 hr_res_annual <- readRDS("input/san/hr_res_MSY_annual.rds")
+
+### add MSY run
+hr_runs_annual <- bind_rows(hr_runs_annual,
+                            bind_rows(get("res_trace", envir = trace_env)))
+saveRDS(hr_runs_annual, "input/san/hr_runs_annual.rds")
+hr_runs_annual <- readRDS("input/san/hr_runs_annual.rds")
 hr_runs_annual %>% 
-  ggplot(aes(x = hr, y = Catch)) +
+  ggplot(aes(x = target, y = Catch)) +
   geom_line() +
   theme_bw(base_size = 8) +
   geom_vline(xintercept = hr_res_annual$maximum)
 ### run max catch
-hr_res_annual_MSY <- optimise_MP(om_stk = stk, om_sr = sr, yrs = 101:200, 
-                          seasons = 1:4, hr = hr_res_annual$maximum, lag = 0, 
-                          catch_interval = 4, verbose = TRUE,  
-                          stat_yrs = 191:200, return_all = TRUE)
-### add MSY run
-hr_runs_annual <- bind_rows(hr_runs_annual,
-                     c(unlist(hr_res_annual_MSY), hr = hr_res_annual$maximum))
-saveRDS(hr_runs_annual, "input/san/hr_runs_annual.rds")
-hr_runs_annual <- readRDS("input/san/hr_runs_annual.rds")
+hr_res_annual_MSY <- optimise_MP(MP = "hr", 
+                                 om_stk = stk, om_sr = sr, yrs = 101:200,
+                                 seasons = 1:4, target = hr_res_annual$maximum,
+                                 lag = 0,  catch_interval = 4, verbose = TRUE,
+                                 stat_yrs = 191:200, return_all = TRUE,
+                                 force_seasonal = TRUE)
 ### run MSY projection and return stock
-hr_res_MSY_annual_stk <- mse_hr(om_stk = stk, om_sr = sr,
-                         yrs = 101:200, seasons = 1:4,
-                         hr = hr_res_annual$maximum, lag = 0, catch_interval = 4,
-                         verbose = TRUE)
+hr_res_MSY_annual_stk <- mse_loop(MP = "hr", om_stk = stk, om_sr = sr,
+                                  yrs = 101:200, seasons = 1:4,
+                                  target = hr_res_annual$maximum, lag = 0,
+                                  catch_interval = 4,
+                                  verbose = TRUE,
+                                  force_seasonal = TRUE)
 plot(hr_res_MSY_annual_stk)
 saveRDS(hr_res_MSY_annual_stk, "input/san/hr_res_MSY_annual_stk.rds")
 hr_res_MSY_annual_stk <- readRDS("input/san/hr_res_MSY_annual_stk.rds")
@@ -135,52 +145,85 @@ hr_res_MSY_annual_stk <- readRDS("input/san/hr_res_MSY_annual_stk.rds")
 ### run a few values
 hr_vals_biannual <- seq(0, 0.4, 0.02)
 hr_runs_biannual <- foreach(hr = hr_vals_biannual) %dopar% {
-  optimise_MP(om_stk = stk, om_sr = sr, yrs = 101:200, seasons = 1:4, 
+  optimise_MP(MP = "hr", om_stk = stk, om_sr = sr, yrs = 101:200, seasons = 1:4, 
               lag = 0, catch_interval = 2, verbose = FALSE, 
-              stat_yrs = 191:200, return_all = TRUE, hr = hr)
+              stat_yrs = 191:200, return_all = TRUE, target = hr,
+              force_seasonal = TRUE)
 }
 hr_runs_biannual <- as.data.frame(do.call(bind_rows, hr_runs_biannual))
-hr_runs_biannual$hr <- hr_vals_biannual
 saveRDS(hr_runs_biannual, "input/san/hr_runs_biannual.rds")
 hr_runs_biannual %>% 
-  ggplot(aes(x = hr, y = Catch)) +
+  ggplot(aes(x = target, y = Catch)) +
   geom_line() +
   theme_bw(base_size = 8)
+trace_env <- new.env()
 ### MSY harvest rate
-hr_res_biannual <- optimise(f = optimise_MP, 
-                          om_stk = stk, om_sr = sr, yrs = 101:200, seasons = 1:4, 
-                          lag = 0, catch_interval = 2, verbose = FALSE, 
-                          stat_yrs = 191:200, return_all = FALSE,
-                          interval = c(0, 0.4),
-                          lower = 0, upper = 0.4,
-                          maximum = TRUE,
-                          tol = 0.00001)
+hr_res_biannual <- optimise(f = optimise_MP, MP = "hr",
+                            om_stk = stk, om_sr = sr, yrs = 101:200, 
+                            seasons = 1:4, 
+                            lag = 0, catch_interval = 2, verbose = FALSE, 
+                            force_seasonal = TRUE,
+                            stat_yrs = 191:200, return_all = FALSE,
+                            trace = TRUE, trace_env = trace_env,
+                            interval = c(0, 0.4),
+                            lower = 0, upper = 0.4,
+                            maximum = TRUE,
+                            tol = 0.00001)
 saveRDS(hr_res_biannual, "input/san/hr_res_MSY_biannual.rds")
 hr_res_biannual <- readRDS("input/san/hr_res_MSY_biannual.rds")
+
+### add MSY run
+hr_runs_biannual <- bind_rows(hr_runs_biannual,
+                            bind_rows(get("res_trace", envir = trace_env)))
+saveRDS(hr_runs_biannual, "input/san/hr_runs_biannual.rds")
+hr_runs_biannual <- readRDS("input/san/hr_runs_biannual.rds")
 hr_runs_biannual %>% 
-  ggplot(aes(x = hr, y = Catch)) +
+  ggplot(aes(x = target, y = Catch)) +
   geom_line() +
   theme_bw(base_size = 8) +
   geom_vline(xintercept = hr_res_biannual$maximum)
 ### run max catch
-hr_res_biannual_MSY <- optimise_MP(om_stk = stk, om_sr = sr, yrs = 101:200, 
-                                 seasons = 1:4, hr = hr_res_biannual$maximum, lag = 0, 
-                                 catch_interval = 2, verbose = TRUE,  
-                                 stat_yrs = 191:200, return_all = TRUE)
-### add MSY run
-hr_runs_biannual <- bind_rows(hr_runs_biannual,
-                            c(unlist(hr_res_biannual_MSY), hr = hr_res_biannual$maximum))
-saveRDS(hr_runs_biannual, "input/san/hr_runs_biannual.rds")
-hr_runs_biannual <- readRDS("input/san/hr_runs_biannual.rds")
+hr_res_biannual_MSY <- optimise_MP(MP = "hr",
+                                   om_stk = stk, om_sr = sr, yrs = 101:200, 
+                                   seasons = 1:4, 
+                                   target = hr_res_biannual$maximum, 
+                                   lag = 0, catch_interval = 2, verbose = TRUE,  
+                                   stat_yrs = 191:200, return_all = TRUE,
+                                   force_seasonal = TRUE)
 ### run MSY projection and return stock
-hr_res_MSY_biannual_stk <- mse_hr(om_stk = stk, om_sr = sr,
-                                yrs = 101:200, seasons = 1:4,
-                                hr = hr_res_biannual$maximum, lag = 0, catch_interval = 2,
-                                verbose = TRUE)
+hr_res_MSY_biannual_stk <- mse_loop(MP = "hr", om_stk = stk, om_sr = sr,
+                                    yrs = 101:200, seasons = 1:4,
+                                    target = hr_res_biannual$maximum, lag = 0,
+                                    catch_interval = 2,
+                                    verbose = TRUE,
+                                    force_seasonal = TRUE)
 plot(hr_res_MSY_biannual_stk)
 saveRDS(hr_res_MSY_biannual_stk, "input/san/hr_res_MSY_biannual_stk.rds")
 hr_res_MSY_biannual_stk <- readRDS("input/san/hr_res_MSY_biannual_stk.rds")
 
+
+
+quarterly0 <- mse_loop(MP = "hr", om_stk = stk, om_sr = sr,
+                       yrs = 101:200, seasons = 1:4,
+                       target = 0, lag = 0,
+                       catch_interval = 1,
+                       verbose = TRUE)
+biannual0 <- mse_loop(MP = "hr", om_stk = stk, om_sr = sr,
+                       yrs = 101:200, seasons = 1:4,
+                       target = 0, lag = 0,
+                       catch_interval = 2,
+                       verbose = TRUE)
+biannual0_seasonal <- mse_loop(MP = "hr", om_stk = stk, om_sr = sr,
+                      yrs = 101:200, seasons = 1:4,
+                      target = 0, lag = 0,
+                      catch_interval = 2,
+                      verbose = TRUE, force_seasonal = TRUE)
+annual0 <- mse_loop(MP = "hr", om_stk = stk, om_sr = sr,
+                       yrs = 101:200, seasons = 1:4,
+                       target = 0, lag = 0,
+                       catch_interval = 4,
+                       verbose = TRUE)
+plot(FLStocks(annual = annual0, biannual = biannual0, quarterly = quarterly0))
 
 
 ### combine quarterly/biannual/annual
@@ -194,19 +237,19 @@ bind_rows(hr_runs %>% mutate(step = "quarterly"),
   mutate(name = factor(name, levels = c("Rec", "SSB", "TSB", "Catch", "Fbar"),
                         labels = c("Recruits [1000s]", "SSB [t]", "TSB [t]",
                                    "Catch [1000t]", "mean F (ages 1-3)"))) %>%
-  ggplot(aes(x = hr, y = value, colour = step)) +
+  ggplot(aes(x = target, y = value, colour = step)) +
   geom_line(size = 0.4) +
   geom_blank(data = 
-               data.frame(name = factor(c("SSB [t]"), 
-                                        levels = c("Recruits [1000s]", "SSB [t]", "TSB [t]",
-                                                   "Catch [1000t]", "mean F (ages 1-3)")),
-                          hr = 0, value = 1000, 
-                          step = "annual")) +
+  data.frame(name = factor(c("SSB [t]"), 
+                           levels = c("Recruits [1000s]", "SSB [t]", "TSB [t]",
+                                      "Catch [1000t]", "mean F (ages 1-3)")),
+             target = 0, value = 1000, 
+             step = "annual")) +
   geom_vline(data = 
-    data.frame(hr = c(hr_res$maximum, hr_res_biannual$maximum, 
-                      hr_res_annual$maximum),
+    data.frame(target = c(hr_res$maximum, hr_res_biannual$maximum, 
+                          hr_res_annual$maximum),
                step = c("quarterly", "biannual", "annual")),
-    aes(xintercept = hr, colour = step), size = 0.3, linetype = "dashed",
+    aes(xintercept = target, colour = step), size = 0.3, linetype = "dashed",
     show.legend = FALSE) +
   scale_color_brewer(palette = "Dark2") + 
   # scale_x_continuous(breaks = c(0, 0.25, 0.5, 0.75), labels = c(1, 2, 3, 4),
@@ -291,17 +334,16 @@ ggsave("output/plots/san_MSY_hr_steps_projection.pdf",
 ### run a few values
 esc_vals <- c(seq(0, 900, 50), seq(1000, 2000, 100))
 esc_runs <- foreach(esc_biomass = esc_vals) %dopar% {
-  optimise_MP(MP = "escapement", 
+  optimise_MP(MP = "escapement", force_seasonal = TRUE,
               om_stk = stk, om_sr = sr, yrs = 101:200, seasons = 1:4, 
               lag = 0, catch_interval = 1, verbose = FALSE, 
               stat_yrs = 191:200, return_all = TRUE,
               target = esc_biomass)
 }
 esc_runs <- as.data.frame(do.call(bind_rows, esc_runs))
-esc_runs$esc_biomass <- esc_vals
 
 esc_runs %>% 
-  ggplot(aes(x = esc_biomass, y = Catch)) +
+  ggplot(aes(x = target, y = Catch)) +
   geom_line() +
   theme_bw(base_size = 8)
 
@@ -310,7 +352,7 @@ trace_env <- new.env()
 #source("funs.R")
 #get("res_trace", envir = trace_env)
 #debugonce(optimise_MP)
-esc_res <- optimise(f = optimise_MP, MP = "escapement", 
+esc_res <- optimise(f = optimise_MP, MP = "escapement", force_seasonal = TRUE,
                     om_stk = stk, om_sr = sr, yrs = 101:200, seasons = 1:4, 
                     lag = 0, catch_interval = 1, verbose = FALSE, 
                     stat_yrs = 191:200, return_all = FALSE,
@@ -332,12 +374,12 @@ esc_runs %>%
   theme_bw(base_size = 8) +
   geom_vline(xintercept = esc_res$maximum)
 ### run MSY projection and return stock
-esc_res_MSY_stk <- mse_loop(MP = "escapement",
-                         om_stk = stk, om_sr = sr,
-                         yrs = 101:200, seasons = 1:4,
-                         target = esc_res$maximum, 
-                         lag = 0, catch_interval = 1,
-                         verbose = TRUE)
+esc_res_MSY_stk <- mse_loop(MP = "escapement", force_seasonal = TRUE,
+                            om_stk = stk, om_sr = sr,
+                            yrs = 101:200, seasons = 1:4,
+                            target = esc_res$maximum, 
+                            lag = 0, catch_interval = 1,
+                            verbose = TRUE)
 plot(esc_res_MSY_stk)
 saveRDS(esc_res_MSY_stk, "input/san/esc_res_MSY_stk.rds")
 esc_res_MSY_stk <- readRDS("input/san/esc_res_MSY_stk.rds")
@@ -347,7 +389,7 @@ esc_res_MSY_stk <- readRDS("input/san/esc_res_MSY_stk.rds")
 ### run a few values
 esc_vals_biannual <- c(seq(0, 950, 50), seq(1000, 2000, 100))
 esc_runs_biannual <- foreach(esc_biomass = esc_vals_biannual) %dopar% {
-  optimise_MP(MP = "escapement", 
+  optimise_MP(MP = "escapement", force_seasonal = TRUE,
               om_stk = stk, om_sr = sr, yrs = 101:200, seasons = 1:4, 
               lag = 0, catch_interval = 2, verbose = FALSE, 
               stat_yrs = 191:200, return_all = TRUE,
@@ -361,19 +403,18 @@ esc_runs_biannual %>%
 
 ### MSY escapement
 trace_env <- new.env()
-#source("funs.R")
-#get("res_trace", envir = trace_env)
-#debugonce(optimise_MP)
-esc_res_biannual <- optimise(f = optimise_MP, MP = "escapement", 
-                    om_stk = stk, om_sr = sr, yrs = 101:200, seasons = 1:4, 
-                    lag = 0, catch_interval = 2, verbose = FALSE, 
-                    stat_yrs = 191:200, return_all = FALSE,
-                    trace = TRUE, trace_env = trace_env, 
-                    objective_stat = median,
-                    interval = c(0, 1000),
-                    lower = 0, upper = 1000,
-                    maximum = TRUE,
-                    tol = 0.1)
+esc_res_biannual <- optimise(f = optimise_MP, MP = "escapement",
+                             force_seasonal = TRUE,
+                             om_stk = stk, om_sr = sr, yrs = 101:200, 
+                             seasons = 1:4, lag = 0, catch_interval = 2, 
+                             verbose = FALSE,  stat_yrs = 191:200, 
+                             return_all = FALSE,
+                             trace = TRUE, trace_env = trace_env, 
+                             objective_stat = median,
+                             interval = c(0, 1000),
+                             lower = 0, upper = 1000,
+                             maximum = TRUE,
+                             tol = 0.1)
 saveRDS(esc_res_biannual, "input/san/esc_res_biannual_MSY.rds")
 esc_res_biannual <- readRDS("input/san/esc_res_biannual_MSY.rds")
 ### add MSY run
@@ -387,7 +428,7 @@ esc_runs_biannual %>%
   theme_bw(base_size = 8) +
   geom_vline(xintercept = esc_res_biannual$maximum)
 ### run MSY projection and return stock
-esc_res_MSY_stk_biannual <- mse_loop(MP = "escapement",
+esc_res_MSY_stk_biannual <- mse_loop(MP = "escapement", force_seasonal = TRUE,
                                      om_stk = stk, om_sr = sr,
                                      yrs = 101:200, seasons = 1:4,
                                      target = esc_res_biannual$maximum, 
@@ -403,7 +444,7 @@ esc_res_MSY_stk_biannual <- readRDS("input/san/esc_res_MSY_stk_biannual.rds")
 ### run a few values
 esc_vals_annual <- unique(c(seq(0, 1000, 50), seq(1000, 2000, 100)))
 esc_runs_annual <- foreach(esc_biomass = esc_vals_annual) %dopar% {
-  optimise_MP(MP = "escapement", 
+  optimise_MP(MP = "escapement", force_seasonal = TRUE,
               om_stk = stk, om_sr = sr, yrs = 101:200, seasons = 1:4, 
               lag = 0, catch_interval = 4, verbose = FALSE, 
               stat_yrs = 191:200, return_all = TRUE,
@@ -416,16 +457,18 @@ esc_runs_annual %>%
   theme_bw(base_size = 8)
 ### MSY escapement
 trace_env <- new.env()
-esc_res_annual <- optimise(f = optimise_MP, MP = "escapement", 
-                             om_stk = stk, om_sr = sr, yrs = 101:200, seasons = 1:4, 
-                             lag = 0, catch_interval = 4, verbose = FALSE, 
-                             stat_yrs = 191:200, return_all = FALSE,
-                             trace = TRUE, trace_env = trace_env, 
-                             objective_stat = median,
-                             interval = c(0, 1000),
-                             lower = 0, upper = 1000,
-                             maximum = TRUE,
-                             tol = 0.1)
+esc_res_annual <- optimise(f = optimise_MP, force_seasonal = TRUE,
+                           MP = "escapement",
+                           om_stk = stk, om_sr = sr, yrs = 101:200, 
+                           seasons = 1:4, 
+                           lag = 0, catch_interval = 4, verbose = FALSE, 
+                           stat_yrs = 191:200, return_all = FALSE,
+                           trace = TRUE, trace_env = trace_env, 
+                           objective_stat = median,
+                           interval = c(0, 1000),
+                           lower = 0, upper = 1000,
+                           maximum = TRUE,
+                           tol = 0.1)
 saveRDS(esc_res_annual, "input/san/esc_res_annual_MSY.rds")
 esc_res_annual <- readRDS("input/san/esc_res_annual_MSY.rds")
 ### add MSY run
@@ -439,12 +482,12 @@ esc_runs_annual %>%
   theme_bw(base_size = 8) +
   geom_vline(xintercept = esc_res_annual$maximum)
 ### run MSY projection and return stock
-esc_res_MSY_stk_annual <- mse_loop(MP = "escapement",
-                                     om_stk = stk, om_sr = sr,
-                                     yrs = 101:200, seasons = 1:4,
-                                     target = esc_res_annual$maximum, 
-                                     lag = 0, catch_interval = 4,
-                                     verbose = TRUE)
+esc_res_MSY_stk_annual <- mse_loop(MP = "escapement", MP = "escapement",
+                                   om_stk = stk, om_sr = sr,
+                                   yrs = 101:200, seasons = 1:4,
+                                   target = esc_res_annual$maximum, 
+                                   lag = 0, catch_interval = 4,
+                                   verbose = TRUE)
 plot(esc_res_MSY_stk_annual)
 saveRDS(esc_res_MSY_stk_annual, "input/san/esc_res_MSY_stk_annual.rds")
 esc_res_MSY_stk_annual <- readRDS("input/san/esc_res_MSY_stk_annual.rds")

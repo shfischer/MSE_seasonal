@@ -79,7 +79,8 @@ mse_loop <- function(MP = "hr",
                      target = 0,
                      lag = 0, catch_interval = 1,
                      verbose = TRUE,
-                     effort_max = 1e+9, maxF = 5) {
+                     effort_max = 1e+9, maxF = 5,
+                     force_seasonal = FALSE) {
   #browser()
   tab <- expand.grid(year = as.numeric(dimnames(om_stk)$year),
                      season = as.numeric(dimnames(om_stk)$season))
@@ -90,6 +91,12 @@ mse_loop <- function(MP = "hr",
   ids <- seq(from = tab$id[tab$year == min(yrs) & tab$season == min(seasons)],
              to = tab$id[tab$year == max(yrs) & tab$season == max(seasons)], 
              by = catch_interval)
+  if (isTRUE(force_seasonal)) {
+    ids_new <- ids
+    ids <- seq(from = tab$id[tab$year == min(yrs) & tab$season == min(seasons)],
+               to = tab$id[tab$year == max(yrs) & tab$season == max(seasons)], 
+               by = 1)
+  }
   
   for (id in ids) {
     yr <- tab$year[id]
@@ -109,20 +116,45 @@ mse_loop <- function(MP = "hr",
     idx <- tsb(om_stk_tmp)[, ac(tab$year[id - lag]),, 
                            ac(tab$season[id - lag])]
     ### catch target
-    advice <- FLQuant(NA,
-                      dimnames = list(year = unique(tab$year[seq(id, id + catch_interval - 1)]),
-                                      season = unique(tab$season[seq(id, id + catch_interval - 1)]),
-                                      iter = dimnames(idx)$iter))
-    if (identical(MP, "hr")) {
-      advice[] <- rep(c(idx * target), each = catch_interval)
-    } else if (identical(MP, "escapement")) {
-      ### make sure catch is not negative
-      ### if escapement biomass is below target, advice is zero 
-      advice[] <- rep(pmax(c(idx - target), 0), each = catch_interval)
-      ### fish excess throughout management period
-      advice <- advice/catch_interval
+    if (isFALSE(force_seasonal)) {
+      advice <- FLQuant(NA,
+        dimnames = list(year = unique(tab$year[seq(id, id + catch_interval - 1)]),
+                        season = unique(tab$season[seq(id, id + catch_interval - 1)]),
+                        iter = dimnames(idx)$iter))
+      if (identical(MP, "hr")) {
+        advice[] <- rep(c(idx * target), each = catch_interval)
+      } else if (identical(MP, "escapement")) {
+        ### make sure catch is not negative
+        ### if escapement biomass is below target, advice is zero 
+        advice[] <- rep(pmax(c(idx - target), 0), each = catch_interval)
+        ### fish excess throughout management period
+        advice <- advice/catch_interval
+      } else {
+        stop("unknown MP")
+      }
     } else {
-      stop("unknown MP")
+      ### force seasonal forecast
+      if (isTRUE(id %in% ids_new)) {
+        advice <- FLQuant(NA,
+          dimnames = list(year = unique(tab$year[id]),
+                          season = unique(tab$season[id]),
+                          iter = dimnames(idx)$iter))
+        if (identical(MP, "hr")) {
+          advice[] <- rep(c(idx * target), each = 1)
+        } else if (identical(MP, "escapement")) {
+          advice[] <- rep(pmax(c(idx - target), 0), each = 1)
+          advice <- advice/catch_interval
+        } else {
+          stop("unknown MP")
+        }
+      } else {
+        ### rollover of last advice
+        advice <- FLQuant(c(advice),
+                          dimnames = list(year = unique(tab$year[id]),
+                                          season = unique(tab$season[id]),
+                                          iter = dimnames(idx)$iter))
+        
+      }
     }
     ### set target
     ctrl <- as(FLQuants(catch = advice), "fwdControl")
@@ -150,8 +182,8 @@ optimise_MP <- function(MP = "hr", om_stk = stk, om_sr = sr,
                         yrs = 101:200, seasons = 1:4, 
                         target, lag = 0, catch_interval = 1,
                         verbose = FALSE, stat_yrs = 191:200,
-                        return_all = FALSE, objective_stat = mean,
-                        trace = FALSE, trace_env) {
+                        return_all = FALSE, objective_stat = median,
+                        trace = FALSE, trace_env, force_seasonal = FALSE) {
   if (isTRUE(trace)) {
     res_trace_i <- mget("res_trace", envir = trace_env, 
                         ifnotfound = FALSE)$res_trace
@@ -171,7 +203,7 @@ optimise_MP <- function(MP = "hr", om_stk = stk, om_sr = sr,
                     yrs = yrs, seasons = seasons, 
                     target = target,
                     lag = lag, catch_interval = catch_interval,
-                    verbose = verbose)
+                    verbose = verbose, force_seasonal = force_seasonal)
     res_list <- list(
       target = target,
       TSB = median(tsb(res)[, ac(stat_yrs),, 1], na.rm = TRUE),
