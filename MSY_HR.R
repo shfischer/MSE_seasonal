@@ -482,7 +482,7 @@ esc_runs_annual %>%
   theme_bw(base_size = 8) +
   geom_vline(xintercept = esc_res_annual$maximum)
 ### run MSY projection and return stock
-esc_res_MSY_stk_annual <- mse_loop(MP = "escapement", MP = "escapement",
+esc_res_MSY_stk_annual <- mse_loop(MP = "escapement", force_seasonal = TRUE,
                                    om_stk = stk, om_sr = sr,
                                    yrs = 101:200, seasons = 1:4,
                                    target = esc_res_annual$maximum, 
