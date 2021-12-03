@@ -15,6 +15,8 @@ for (i in seq_along(args)) eval(parse(text = args[[i]]))
 ### ------------------------------------------------------------------------ ###
 ### set-up ####
 ### ------------------------------------------------------------------------ ###
+### manual overwrite of library path for parallel workers...
+.libPaths(c("renv/library/R-4.1/x86_64-w64-mingw32/", .libPaths()))
 source("funs.R")
 library(FLasher)
 library(doParallel)
@@ -25,6 +27,7 @@ library(cowplot)
 cl <- makeCluster(n_workers)
 registerDoParallel(cl)
 . <- foreach(seq(length(cl))) %dopar% {
+  .libPaths(c("renv/library/R-4.1/x86_64-w64-mingw32/", .libPaths()))
   source("funs.R")
   library(FLasher)
 }
