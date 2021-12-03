@@ -69,13 +69,13 @@ if (identical(MP, "hr")) {
     print(paste0("finished lag=", lag_i))
   }
   
-}
+
 
 ### ------------------------------------------------------------------------ ###
 ### Escapement strategy with annual TAC - lags ####
 ### ------------------------------------------------------------------------ ###
 
-if (identical(MP, "hr")) {
+} else if (identical(MP, "escapement")) {
 
   stk_rnd_500 <- readRDS("input/san/stk_rnd_500.rds")
   sr_500 <- readRDS("input/san/sr_500.rds")
