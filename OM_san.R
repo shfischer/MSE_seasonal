@@ -9,6 +9,7 @@ library(ggplot2)
 library(dplyr)
 library(tidyr)
 library(FLasher)
+library(foreach)
 # remotes::install_github("shfischer/FLasher", ref = "seasons_tmp",
 #                         INSTALL_opts = "--no-multiarch")
 ### use shfischer/FLasher branch seasons_tmp
@@ -506,3 +507,364 @@ plot(window(stk_fwd_rnd, start = 90, end = 100), iter = 1:5)
 saveRDS(stk_fwd_rnd, file = paste0("input/san/stk_rnd_", n_iter, ".rds"))
 stk_fwd_rnd <- readRDS(paste0("input/san/stk_rnd_", n_iter, ".rds"))
 
+
+
+### ------------------------------------------------------------------------ ###
+### create OM again but without seasonal growth ####
+### ------------------------------------------------------------------------ ###
+nseasons <- 1
+range <- list(min = 0, max = 5, 
+              minfbar = 1, maxfbar = 3,
+              plusgrup = 5,
+              seasons = nseasons)
+params <- lh
+
+# debugonce(lhEql, signature = "FLPar")
+# brp <- lhEql(params = lh, range = range)
+
+### timing
+spwn <- 0 ### spawning at beginning of year
+### fishing occurs throughout
+### -> use mid-year (or mid-season) lengths/weights 
+fish <- 0.5 
+midyear <- 0.5
+
+### ages as integer vector
+ages_int <- seq(from = floor(range$min), to = ceiling(range$max))
+### FLQuant template with all dimensions
+flq <- FLQuant(NA, dimnames = list(age = ages_int,
+                                   season = seq(range$seasons)))
+### all ages (including seasons) as FLQuant
+ages_full <- seq(from = min(ages_int), 
+                 to = max(ages_int) + 1 - 1/range$seasons, 
+                 by = 1/range$seasons)
+ages_full <- flq %=% c(matrix(ages_full, ncol = range$seasons, byrow = TRUE))
+
+### spawning period - proportion of F/M per season before spawning
+season_times <- seq(range$seasons)/range$seasons - 1/range$seasons
+m.spwn <- sapply(season_times, function(x) {
+  ifelse(spwn %in% season_times,
+         ifelse(x < spwn, 1, 0),
+         ifelse(x > spwn, 0,
+                ifelse((spwn - x) / (1/range$seasons) > 1, 1,
+                       ((spwn %% (1/range$seasons))/(1/range$seasons)))))
+})
+m.spwn <- flq %=% rep(m.spwn, each = dim(flq)[1])
+harvest.spwn <- m.spwn
+
+### lengths
+lengths_stk <- FLife::vonB(ages_full, params = params)
+lengths_catch <- FLife::vonB(ages_full + fish/nseasons, params = params)
+lengths_mid <- FLife::vonB(ages_full + 1/range$seasons*midyear, params = params)
+
+### weights
+weights_stk <- FLife::len2wt(length = lengths_stk, params = params)
+weights_catch <- FLife::len2wt(length = lengths_catch, params = params)
+weights_mid <- FLife::len2wt(length = lengths_mid, params = params)
+
+### maturity
+### use value at beginning of year/season because this is when SSB is calculated
+mat. <- FLife::logistic(age = ages_full, params = params)
+if (dims(mat.)["min"] == 0) mat.[1,,, 1] <- 0 ### no self-spawning
+
+### fisheries selectivity
+sel. <- FLife::dnormal(age = ages_full + fish/nseasons, params = params)
+#if (dims(sel.)["min"] == 0) sel.[1,,, 1] <- 0 ### recruits not fished
+units(sel.) <- "f"
+
+### natural mortality
+### define Gislason natural mortality function
+### FLife::gislason is wrong
+gisM <- function(length, params) {
+  exp(params["m1"] %+% (params["m2"] %*% log(length)) %+% 
+        (params["m3"] %*% log(params["linf"])) %+% log(params["k"]))
+}
+### /seasons because M is annual value
+m. <- gisM(length = lengths_mid, params = params)/range$seasons
+
+### create FLBRP template
+brp <- FLBRP(stock.wt        = weights_stk,
+             landings.wt     = weights_catch,
+             discards.wt     = weights_catch,
+             bycatch.wt      = weights_catch,
+             mat             = mat.,
+             m               = m.,
+             landings.sel    = sel.,
+             discards.sel    = sel. %=% 0,
+             bycatch.harvest = sel. %=% 0,
+             harvest.spwn    = harvest.spwn,
+             m.spwn          = m.spwn,
+             availability    = weights_stk %=% 1,
+             range           = unlist(range))
+
+### set up unfished stock
+# debugonce(N3)
+### all metrics based on SSB=1000 when F=0
+SSB0 <- 1000
+Ri <- 1e+06
+Ni <- N(object = flq, m = m., rec = Ri, eq_years = 100)
+### SSB in 1st season (spawning time)
+SSBi <- sum((Ni * mat. * weights_stk)[,,, 1]) 
+spr0 <- SSBi/Ri
+R0 <- SSB0 * 1/spr0
+
+### unfished stock
+N0 <- N(object = flq, m = m., rec = R0, eq_years = 100)
+sum((N0 * mat. * weights_stk)[,,, 1])
+
+### define recruitment model
+model(brp) <- bevholt()$model
+a <- (4 * params["s"] * R0)/(5 * params["s"] - 1)
+b <- (SSB0 * (1 - params["s"]))/(5 * params["s"] - 1)
+sr_annual <- as(brp, "FLSR")
+params(sr_annual) <- FLPar(NA, dimnames = list(params = c("a","b"),
+                                        iter = 1))
+params(sr_annual)[,1] <- c(a, b)
+
+### prepare OM stock
+stk_annual <- FLStock(harvest = harvest(brp))
+catch(stk_annual)[] <- catch(brp)
+catch.n(stk_annual)[] <- catch.n(brp)
+catch.wt(stk_annual)[] <- catch.wt(brp)
+discards(stk_annual)[] <- discards(brp)
+discards.n(stk_annual)[] <- discards.n(brp)
+discards.wt(stk_annual)[] <- discards.wt(brp)
+landings(stk_annual)[] <- landings(brp)
+landings.n(stk_annual)[] <- landings.n(brp)
+landings.wt(stk_annual)[] <- landings.wt(brp)
+stock(stk_annual)[] <- stock(brp)
+stock.n(stk_annual)[] <- stock.n(brp)
+stock.wt(stk_annual)[] <- stock.wt(brp)
+m(stk_annual)[] <- m(brp)
+mat(stk_annual)[] <- mat(brp)
+harvest(stk_annual)[] <- harvest(brp)
+harvest.spwn(stk_annual)[] <- harvest.spwn(brp)
+m.spwn(stk_annual)[] <- m.spwn(brp)
+range(stk_annual)[] <- c(0, 5, 5, 1, 101, 1, 3)
+#stk <- as(brp, "FLStock")[, 1:101]
+for (y in 1) stock.n(stk_annual)[, y] <- N0 # do not fill later years -> weird things happen
+stock(stk_annual) <- computeStock(stk_annual)
+landings.n(stk_annual) <- discards.n(stk_annual) <- catch.n(stk_annual) <- 0
+landings.n(stk_annual)[, 2:101] <- 1e-6
+catch.n(stk_annual)[, 2:101] <- 1e-6
+catch(stk_annual) <- computeCatch(stk_annual)
+landings(stk_annual) <- computeLandings(stk_annual)
+discards(stk_annual) <- computeDiscards(stk_annual)
+harvest(stk_annual)[, 1] <- 0
+for (y in 2:101) harvest(stk_annual)[, y] <- sel.
+
+### zero fishing
+#debugonce(fwd, signature = c("FLStock", "missing", "fwdControl"))
+ctrl <- fwdControl(data.frame(year = rep(2:101),
+                              season = 1,
+                              quant = "fbar",
+                              value = 0.0))
+stk_annual_fwd0 <- fwd(stk_annual, control = ctrl, sr = sr_annual, effort_max = 1e+9)
+### fish 0.4
+ctrl <- fwdControl(data.frame(year = rep(2:101),
+                              season = 1,
+                              quant = "fbar",
+                              value = 0.4/4))
+stk_annual_fwd0.1 <- fwd(stk_annual, control = ctrl, sr = sr_annual)
+### fish 1
+ctrl <- fwdControl(data.frame(year = rep(2:101),
+                              season = 1,
+                              quant = "fbar",
+                              value = 1))
+stk_annual_fwd1 <- fwd(stk_annual, control = ctrl, sr = sr_annual)
+### fish 4
+ctrl <- fwdControl(data.frame(year = rep(2:101),
+                              season = 1,
+                              quant = "fbar",
+                              value = 4))
+stk_annual_fwd4 <- fwd(stk_annual, control = ctrl, sr = sr_annual, effort_max = 1e+9)
+### fish 10
+ctrl <- fwdControl(data.frame(year = rep(2:101),
+                              season = 1,
+                              quant = "fbar",
+                              value = 10))
+stk_annual_fwd_ <- fwd(stk_annual, control = ctrl, sr = sr_annual, effort_max = 1e+9)
+
+plot(window(FLStocks("F=0" = stk_annual_fwd0, "F=0.4" = stk_annual_fwd0.1, 
+                     "F=1" = stk_annual_fwd1,
+                     "F=4" = stk_annual_fwd4,
+                     "F=10" = stk_annual_fwd_), end = 10)) +
+  theme_bw()
+
+
+### find MSY - annual model
+trace_env <- new.env()
+F_annual(om_stk = stk_annual, om_sr = sr_annual, trace_env = trace_env, target = 0)
+F_annual <- function(om_stk, om_sr, target, trace_env, seasons = 1) {
+  res_trace_i <- mget("res_trace", envir = trace_env, 
+                      ifnotfound = FALSE)$res_trace
+  if (isFALSE(res_trace_i)) res_trace_i <- list()
+  if (isTRUE(target %in% sapply(res_trace_i, function(x) x$target))) {
+    res_list <- res_trace_i[[which(target == sapply(res_trace_i, 
+                                                    function(x) x$target))[[1]]]]
+    run <- FALSE
+  } else {
+    run <- TRUE
+  }
+  if (isTRUE(run)) {
+    ctrl <- fwdControl(data.frame(year = rep(2:101, each = length(seasons)),
+                                  season = seasons,
+                                  quant = "fbar",
+                                  value = target/length(seasons)))
+    res <- fwd(om_stk, control = ctrl, sr = om_sr, effort_max = 1e+9)
+    stat_yrs <- 91:100
+    res_list <- list(
+      target = target,
+      TSB = median(tsb(res)[, ac(stat_yrs),, 1], na.rm = TRUE),
+      SSB = median(ssb(res)[, ac(stat_yrs),, 1], na.rm = TRUE),
+      Catch = median(apply(catch(res)[, ac(stat_yrs)], 2, sum), na.rm = TRUE),
+      Fbar = median(apply(fbar(res)[, ac(stat_yrs)], 2, sum), na.rm = TRUE),
+      Rec = median(rec(res)[, ac(stat_yrs),, 1], na.rm = TRUE),
+      objective = median(apply(catch(res)[, ac(stat_yrs)], 2, sum), 
+                                 na.rm = TRUE))
+  }
+  res_trace_i <- append(res_trace_i, list(res_list))
+  res_trace_i <- unique(res_trace_i)
+  assign(value = res_trace_i, x = "res_trace", envir = trace_env)
+  print(c(unlist(res_list)))
+  return(res_list$objective)
+}
+
+vals <- c(seq(0, 10, 0.5))
+runs_annual <- foreach(target = vals) %do% {
+  F_annual(om_stk = stk_annual, om_sr = sr_annual, trace_env = trace_env,
+           target = target)
+}
+res_trace <- mget("res_trace", envir = trace_env)
+runs_annual <- as.data.frame(do.call(bind_rows, res_trace))
+MSY_annual <- optimise(f = F_annual, seasons = 1,
+                   om_stk = stk_annual, om_sr = sr_annual, trace_env = trace_env,
+                   interval = c(0, 10),
+                   lower = 0, upper = 10,
+                   maximum = TRUE,
+                   tol = 0.00001)
+res_trace <- mget("res_trace", envir = trace_env)
+runs_annual <- as.data.frame(do.call(bind_rows, res_trace))
+
+
+### find MSY - seasonal model (run again)
+stk_seasonal <- readRDS("input/san/stk_seasonal_deterministic.rds")
+sr_seasonal <- readRDS("input/san/sr_seasonal_deterministic.rds")
+trace_env_seasonal <- new.env()
+MSY_seasonal <- optimise(f = F_annual, 
+                         om_stk = stk_seasonal, om_sr = sr_seasonal, seasons = 1:4,
+                         trace_env = trace_env_seasonal,
+                         interval = c(0, 10),
+                         lower = 0, upper = 10,
+                         maximum = TRUE,
+                         tol = 0.00001)
+# F_annual(om_stk = stk_seasonal, om_sr = sr_seasonal, seasons = 1:4,
+#          trace_env = trace_env_seasonal, target = 0)
+vals_seasonal <- c(seq(0, 10, 0.5))
+runs_seasonal <- foreach(target = vals_seasonal) %do% {
+  F_annual(om_stk = stk_seasonal, om_sr = sr_seasonal, seasons = 1:4,
+           trace_env = trace_env_seasonal,
+           target = target)
+}
+res_trace_seasonal <- mget("res_trace", envir = trace_env_seasonal)
+runs_seasonal <- as.data.frame(do.call(bind_rows, res_trace_seasonal))
+
+
+### annual MSY projection
+ctrl <- fwdControl(data.frame(year = rep(2:101, each = 1),
+                              season = 1,
+                              quant = "fbar",
+                              value = MSY_annual$maximum/1))
+MSY_run_annual <- fwd(stk_annual, control = ctrl, sr = sr_annual, effort_max = 1e+9)
+plot(MSY_run_annual)
+### seasonal MSY projection
+ctrl <- fwdControl(data.frame(year = rep(2:101, each = 4),
+                              season = 1:4,
+                              quant = "fbar",
+                              value = MSY_seasonal$maximum/4))
+MSY_run_seasonal <- fwd(stk_seasonal, control = ctrl, sr = sr_seasonal, effort_max = 1e+9)
+plot(MSY_run_seasonal)
+### zero F projections
+ctrl <- fwdControl(data.frame(year = rep(2:101, each = 1),
+                              season = 1,
+                              quant = "fbar",
+                              value = 0))
+zero_run_annual <- fwd(stk_annual, control = ctrl, sr = sr_annual, effort_max = 1e+9)
+plot(zero_run_annual)
+ctrl <- fwdControl(data.frame(year = rep(2:101, each = 4),
+                              season = 1:4,
+                              quant = "fbar",
+                              value = 0))
+zero_run_seasonal <- fwd(stk_seasonal, control = ctrl, sr = sr_seasonal, effort_max = 1e+9)
+plot(zero_run_seasonal)
+
+
+plot(FLStocks(annual = MSY_run_annual, seasonal = MSY_run_seasonal))
+plot(window(FLStocks(annual = MSY_run_annual, seasonal = MSY_run_seasonal),
+            end = 10))
+
+
+### combine annual and seasonal projections
+qnts <- FLQuants(MSY_annual_rec = rec(MSY_run_annual),
+                 MSY_seasonal_rec = rec(MSY_run_seasonal),
+                 MSY_annual_ssb = ssb(MSY_run_annual),
+                 MSY_seasonal_ssb = ssb(MSY_run_seasonal),
+                 MSY_annual_tsb = tsb(MSY_run_annual),
+                 MSY_seasonal_tsb = tsb(MSY_run_seasonal),
+                 MSY_annual_catch = catch(MSY_run_annual),
+                 MSY_seasonal_catch = catch(MSY_run_seasonal),
+                 MSY_annual_fbar = fbar(MSY_run_annual),
+                 MSY_seasonal_fbar = fbar(MSY_run_seasonal),
+                 zero_annual_rec = rec(zero_run_annual),
+                 zero_seasonal_rec = rec(zero_run_seasonal),
+                 zero_annual_ssb = ssb(zero_run_annual),
+                 zero_seasonal_ssb = ssb(zero_run_seasonal),
+                 zero_annual_tsb = tsb(zero_run_annual),
+                 zero_seasonal_tsb = tsb(zero_run_seasonal),
+                 zero_annual_catch = catch(zero_run_annual),
+                 zero_seasonal_catch = catch(zero_run_seasonal),
+                 zero_annual_fbar = fbar(zero_run_annual),
+                 zero_seasonal_fbar = fbar(zero_run_seasonal)
+                 )
+qnts <- window(qnts, end = 12)
+qnts_df <- as.data.frame(qnts)
+qnts_df <- qnts_df %>%
+  mutate(season = as.numeric(as.character(season)),
+         year_season = year + (season - 1)/4) %>%
+  separate(qname, into = c("target", "model", "quant"), sep = "_") %>%
+  mutate(target = factor(target, levels = c("zero", "MSY"),
+                        labels = c("Zero fishing", "MSY")),
+         model = factor(model, levels = c("annual", "seasonal"),
+                        labels = c("Annual model", "Seasonal model")),
+         quant = factor(quant, levels = c("rec", "ssb", "tsb", "catch", "fbar"),
+                        labels = c("Recruits", "SSB [t]", "TSB [t]", 
+                                   "Catch [t]", "F (ages 1-3)"))) %>%
+  mutate(data = ifelse(quant == "Recruits" & season != "1", 0, data))
+
+qnts_df %>%
+  ggplot(aes(x = year_season - 1, y = data, 
+             colour = model, linetype = target, shape = target)) +
+  geom_line(size = 0.2) +
+  geom_point(size = 0.5) +
+  #facet_wrap(~ quant, scales = "free_y", strip.position = "left", ncol = 3) +
+  facet_grid(quant ~ model, scales = "free_y", switch = "y") +
+  coord_cartesian(ylim = c(0, NA), xlim = c(0, 6)) +
+  scale_x_continuous("year", breaks = c(0, 2, 4, 6, 8, 10)) +
+  scale_linetype_manual(name = "", values = c("solid", "2121")) +
+  #scale_colour_discrete("") +
+  scale_colour_brewer(name = "", palette = "Set1") +
+  scale_shape("") +
+  theme_bw(base_size = 8)  +
+  theme(strip.background = element_blank(),
+        strip.text = element_text(size = 8),
+        strip.placement = "outside",
+        axis.title.y = element_blank(),
+        legend.key.height = unit(0.5, "lines"),
+        legend.key.width = unit(1, "lines"), 
+        legend.spacing.y = unit(0, "lines")
+        #legend.position = c()
+        )
+ggsave("output/plots/san_OM_MSY_proj_annual_seasonal.png",
+       width = 16, height = 12, units = "cm", dpi = 300, type = "cairo")
+ggsave("output/plots/san_OM_MSY_proj_annual_seasonal.pdf",
+       width = 16, height = 12, units = "cm")
