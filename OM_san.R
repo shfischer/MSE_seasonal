@@ -730,7 +730,7 @@ F_annual <- function(om_stk, om_sr, target, trace_env, seasons = 1) {
   return(res_list$objective)
 }
 
-vals <- c(seq(0, 10, 0.5))
+vals <- c(seq(0, 5, 0.1))
 runs_annual <- foreach(target = vals) %do% {
   F_annual(om_stk = stk_annual, om_sr = sr_annual, trace_env = trace_env,
            target = target)
@@ -760,7 +760,7 @@ MSY_seasonal <- optimise(f = F_annual,
                          tol = 0.00001)
 # F_annual(om_stk = stk_seasonal, om_sr = sr_seasonal, seasons = 1:4,
 #          trace_env = trace_env_seasonal, target = 0)
-vals_seasonal <- c(seq(0, 10, 0.5))
+vals_seasonal <- c(seq(0, 5, 0.1))
 runs_seasonal <- foreach(target = vals_seasonal) %do% {
   F_annual(om_stk = stk_seasonal, om_sr = sr_seasonal, seasons = 1:4,
            trace_env = trace_env_seasonal,
@@ -768,6 +768,40 @@ runs_seasonal <- foreach(target = vals_seasonal) %do% {
 }
 res_trace_seasonal <- mget("res_trace", envir = trace_env_seasonal)
 runs_seasonal <- as.data.frame(do.call(bind_rows, res_trace_seasonal))
+
+### combine annual and seasonal MSY estimation
+runs_combined <- bind_rows(bind_cols(runs_annual, model = "annual"),
+                           bind_cols(runs_seasonal, model = "seasonal"))
+runs_combined <- runs_combined %>%
+  pivot_longer(cols = c("TSB", "SSB", "Catch", "Rec")) %>%
+  mutate(model = factor(model, levels = c("annual", "seasonal")),
+         name = factor(name, levels = c("Rec", "SSB", "TSB", "Catch"),
+                       labels = c("Recruits", "SSB [t]", "TSB [t]", 
+                                  "Annual catch [t]")))
+runs_combined %>%
+  ggplot(aes(x = Fbar, y = value, colour = model)) +
+  geom_line(size = 0.4) +
+  geom_vline(data = data.frame(Fbar = c(MSY_annual$maximum, 
+                                        MSY_seasonal$maximum),
+                               model = c("annual", "seasonal")),
+             aes(xintercept = Fbar, colour = model),
+             size = 0.2, linetype = "2121", show.legend = FALSE)  +
+  scale_colour_brewer(name = "Model", palette = "Set1") +
+  facet_wrap(~ name, scales = "free_y", strip.position = "left", nrow = 1) +
+  labs(x = "Annual F (ages 1-3)") +
+  coord_cartesian(xlim = c(0, 5)) + 
+  theme_bw(base_size = 8) +
+  theme(strip.background = element_blank(),
+        strip.text = element_text(size = 8),
+        strip.placement = "outside",
+        axis.title.y = element_blank(),
+        legend.key.height = unit(0.5, "lines"),
+        legend.key.width = unit(1, "lines"),
+        legend.position = "top")
+ggsave("output/plots/san_OM_MSY_est_annual_seasonal.png",
+       width = 16, height = 5, units = "cm", dpi = 300, type = "cairo")
+ggsave("output/plots/san_OM_MSY_est_annual_seasonal.pdf",
+       width = 16, height = 5, units = "cm")
 
 
 ### annual MSY projection
