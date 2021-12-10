@@ -42,7 +42,7 @@
     },
     "FLCore": {
       "Package": "FLCore",
-      "Version": "2.6.18.9002",
+      "Version": "2.6.18.9005",
       "Source": "GitHub",
       "Repository": "flr",
       "RemoteType": "github",
@@ -50,20 +50,20 @@
       "RemoteRepo": "FLCore",
       "RemoteUsername": "flr",
       "RemoteRef": "HEAD",
-      "RemoteSha": "01649c9491fc69dd58e778a82c3f2fad6e2f53a1",
-      "Hash": "0d0af5ced4d6684b02d2cd47bc14acac"
+      "RemoteSha": "a3a8acc223a29ffa44faceb0f3ee6e981b4c8fd2",
+      "Hash": "5aec0ee17f86a317fd9df130c64fff2b"
     },
     "FLFishery": {
       "Package": "FLFishery",
-      "Version": "0.3.7.9001",
+      "Version": "0.3.7.9003",
       "Source": "GitHub",
       "RemoteType": "github",
       "RemoteHost": "api.github.com",
       "RemoteRepo": "FLFishery",
       "RemoteUsername": "flr",
       "RemoteRef": "HEAD",
-      "RemoteSha": "c8eff78fd7a5a66f55b65ab2de8aa2a19a1eb165",
-      "Hash": "5f2242bba8eca4320be5e0e1b7555e6a"
+      "RemoteSha": "8be4de01deed55020c384e79be200372d1c5c09f",
+      "Hash": "4fa40b307861b9117a647fb450611575"
     },
     "FLasher": {
       "Package": "FLasher",
