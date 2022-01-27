@@ -310,7 +310,26 @@ ggsave("output/plots/san_MSY_hr_esc_lag_stats.png", plot = p_stats,
 ggsave("output/plots/san_MSY_hr_esc_lag_stats.pdf", plot = p_stats,
        width = 17, height = 10, units = "cm")
 
+### ------------------------------------------------------------------------ ###
+### catch vs. risk trade-off plot ####
+### ------------------------------------------------------------------------ ###
 
 
 
-
+p_esc_catch <- stats_esc %>%
+  filter(qname == "Catch") %>%
+  #filter(lag <= 4) %>%
+  full_join(stats_esc %>%
+              filter(qname == "risk") %>%
+              group_by(lag) %>%
+              summarise(risk = mean(data))) %>%
+  ggplot(aes(x = data, y = risk, group = lag, colour = lag)) +
+  #geom_hline(yintercept = 1, colour = "grey") +
+  geom_boxplot(fill = "white", 
+               width = 0.025, 
+               size = 0.2,
+               outlier.size = 0.0, outlier.shape = 21, outlier.stroke = 0.2,
+               outlier.fill = "transparent", outlier.color = "transparent") +
+  coord_cartesian(ylim = c(0, 1), xlim = c(0, 2)) +
+  theme_bw(base_size = 8)
+p_esc_catch
