@@ -42,7 +42,7 @@ hr_runs <- as.data.frame(do.call(bind_rows, hr_runs))
 hr_runs$hr <- hr_vals
 
 hr_runs %>% 
-  ggplot(aes(x = hr, y = Catch)) +
+  ggplot(aes(x = target, y = Catch)) +
   geom_line() +
   theme_bw(base_size = 8)
 
@@ -64,6 +64,8 @@ hr_res <- readRDS("input/san/hr_res_MSY.rds")
 hr_runs <- bind_rows(hr_runs,
                      bind_rows(get("res_trace", envir = trace_env)))
 saveRDS(hr_runs, "input/san/hr_runs.rds")
+hr_runs <- readRDS("input/san/hr_runs.rds")
+
 hr_runs %>% 
   ggplot(aes(x = target, y = Catch)) +
   geom_line() +
@@ -152,6 +154,7 @@ hr_runs_biannual <- foreach(hr = hr_vals_biannual) %dopar% {
 }
 hr_runs_biannual <- as.data.frame(do.call(bind_rows, hr_runs_biannual))
 saveRDS(hr_runs_biannual, "input/san/hr_runs_biannual.rds")
+hr_runs_biannual <- readRDS("input/san/hr_runs_biannual.rds")
 hr_runs_biannual %>% 
   ggplot(aes(x = target, y = Catch)) +
   geom_line() +
@@ -226,19 +229,41 @@ annual0 <- mse_loop(MP = "hr", om_stk = stk, om_sr = sr,
 plot(FLStocks(annual = annual0, biannual = biannual0, quarterly = quarterly0))
 
 
+### prepare for plotting
+hr_runs_biannual <- readRDS("input/san/hr_runs_biannual.rds")
+hr_res_biannual <- readRDS("input/san/hr_res_MSY_biannual.rds")
+hr_runs_biannual <- readRDS("input/san/hr_runs_biannual.rds")
+hr_runs_annual <- readRDS("input/san/hr_runs_annual.rds")
+hr_res_annual <- readRDS("input/san/hr_res_MSY_annual.rds")
+hr_runs <- readRDS("input/san/hr_runs.rds")
+hr_res <- readRDS("input/san/hr_res_MSY.rds")
+
 ### combine quarterly/biannual/annual
-bind_rows(hr_runs %>% mutate(step = "quarterly"),
+hr_runs_all <- bind_rows(hr_runs %>% mutate(step = "quarterly"),
           hr_runs_biannual %>% mutate(step = "biannual"),
-          hr_runs_annual %>% mutate(step = "annual")) %>%
+          hr_runs_annual %>% mutate(step = "annual"))
+hr_runs_all %>%
+  ### interpolate to get value where F==6
+  full_join(hr_runs_all %>%
+              group_by(step) %>%
+              summarise(target = approx(x = Fbar, 
+                                        y = target,
+                                        xout = 6)$y,
+                        Fbar = 6)) %>%
+  ### make sure curves extend to maximum target
+  full_join(hr_runs_all %>%
+              group_by(step) %>%
+              summarise(target = 0.5, TSB = 0, SSB = 0, Catch = 0, Rec = 0)) %>%
   mutate(step = factor(step, levels = c("quarterly", "biannual", "annual"))) %>%
   mutate(Rec = Rec/1000) %>%
-  mutate(Fbar = ifelse(Fbar > 5, NA, Fbar)) %>%
+  mutate(Fbar = ifelse(Fbar > 6, NA, Fbar)) %>%
   pivot_longer(c(SSB, TSB, Catch, Fbar, Rec)) %>%
   mutate(name = factor(name, levels = c("Rec", "SSB", "TSB", "Catch", "Fbar"),
                         labels = c("Recruits [1000s]", "SSB [t]", "TSB [t]",
                                    "Catch [1000t]", "mean F (ages 1-3)"))) %>%
+  filter(!is.na(value)) %>%
   ggplot(aes(x = target, y = value, colour = step)) +
-  geom_line(size = 0.4) +
+  geom_line(size = 0.4, na.rm = TRUE) +
   geom_blank(data = 
   data.frame(name = factor(c("SSB [t]"), 
                            levels = c("Recruits [1000s]", "SSB [t]", "TSB [t]",
@@ -492,15 +517,31 @@ plot(esc_res_MSY_stk_annual)
 saveRDS(esc_res_MSY_stk_annual, "input/san/esc_res_MSY_stk_annual.rds")
 esc_res_MSY_stk_annual <- readRDS("input/san/esc_res_MSY_stk_annual.rds")
 
+### load all results
+esc_res_biannual <- readRDS("input/san/esc_res_biannual_MSY.rds")
+esc_runs_biannual <- readRDS("input/san/esc_runs_biannual.rds")
+esc_runs_annual <- readRDS("input/san/esc_runs_annual.rds")
+esc_res_annual <- readRDS("input/san/esc_res_annual_MSY.rds")
+esc_res <- readRDS("input/san/esc_res_MSY.rds")
+esc_runs <- readRDS("input/san/esc_runs.rds")
 
 ### combine quarterly/biannual/annual
-bind_rows(esc_runs %>% mutate(step = "quarterly"),
+esc_runs_all <- bind_rows(esc_runs %>% mutate(step = "quarterly"),
           esc_runs_biannual %>% mutate(step = "biannual"),
-          esc_runs_annual %>% mutate(step = "annual")) %>%
+          esc_runs_annual %>% mutate(step = "annual"))
+esc_runs_all %>%
+  ### interpolate to get value where F==6
+  full_join(esc_runs_all %>%
+              group_by(step) %>%
+              summarise(target = approx(x = Fbar, 
+                                        y = target,
+                                        xout = 5.4)$y,
+                        Fbar = 5.4)) %>%
   mutate(step = factor(step, levels = c("quarterly", "biannual", "annual"))) %>%
   mutate(Rec = Rec/1000) %>%
-  mutate(Fbar = ifelse(Fbar > 5, NA, Fbar)) %>%
+  mutate(Fbar = ifelse(Fbar > 5.4, NA, Fbar)) %>%
   pivot_longer(c(TSB, SSB, Catch, Fbar, Rec)) %>%
+  filter(!is.na(value)) %>%
   mutate(name = factor(name, levels = c("Rec", "SSB", "TSB", "Catch", "Fbar"),
                        labels = c("Recruits [1000s]", "SSB [t]", "TSB [t]",
                                   "Catch [1000t]", "mean F (ages 1-3)"))) %>%
@@ -541,6 +582,10 @@ ggsave("output/plots/san_MSY_esc_step_comparison.pdf",
        width = 17, height = 10, units = "cm")
 
 ### compare projections - quarterly, biannual, annual
+esc_res_MSY_stk_annual <- readRDS("input/san/esc_res_MSY_stk_annual.rds")
+esc_res_MSY_stk_biannual <- readRDS("input/san/esc_res_MSY_stk_biannual.rds")
+esc_res_MSY_stk <- readRDS("input/san/esc_res_MSY_stk.rds")
+
 qnts <- FLQuants(quarterly_Rec = rec(esc_res_MSY_stk),
                  quarterly_SSB = ssb(esc_res_MSY_stk),
                  quarterly_TSB = tsb(esc_res_MSY_stk),

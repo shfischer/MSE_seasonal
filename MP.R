@@ -87,7 +87,7 @@ p_catch <- stats %>%
   geom_boxplot(fill = "white", width = 0.025, size = 0.2,
                outlier.size = 0.35, outlier.shape = 21, outlier.stroke = 0.2,
                outlier.fill = "transparent") +
-  labs(y = expression(annual~catch/MSY), x = "time lag [years]") +
+  labs(y = expression(catch/MSY), x = "time lag [years]") +
   coord_cartesian(ylim = c(0, 2.5)) +
   facet_wrap(~ "Harvest rate") + 
   theme_bw(base_size = 8) +
@@ -227,7 +227,7 @@ p_esc_catch <- stats_esc %>%
   geom_boxplot(fill = "white", width = 0.025, size = 0.2,
                outlier.size = 0.35, outlier.shape = 21, outlier.stroke = 0.2,
                outlier.fill = "transparent") +
-  labs(y = expression(annual~catch/MSY), x = "time lag [years]") +
+  labs(y = expression(catch/MSY), x = "time lag [years]") +
   coord_cartesian(ylim = c(0, 2.5)) +
   facet_grid(~ "Escapement strategy") +
   theme_bw(base_size = 8) +

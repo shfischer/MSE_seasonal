@@ -786,7 +786,7 @@ runs_combined %>%
                                model = c("annual", "seasonal")),
              aes(xintercept = Fbar, colour = model),
              size = 0.2, linetype = "2121", show.legend = FALSE)  +
-  scale_colour_brewer(name = "Model", palette = "Set1") +
+  scale_colour_brewer(name = "Operating model", palette = "Set1") +
   facet_wrap(~ name, scales = "free_y", strip.position = "left", nrow = 1) +
   labs(x = "Annual F (ages 1-3)") +
   coord_cartesian(xlim = c(0, 5)) + 
@@ -869,7 +869,8 @@ qnts_df <- qnts_df %>%
   mutate(target = factor(target, levels = c("zero", "MSY"),
                         labels = c("Zero fishing", "MSY")),
          model = factor(model, levels = c("annual", "seasonal"),
-                        labels = c("Annual model", "Seasonal model")),
+                        labels = c("Annual operating model", 
+                                   "Seasonal operating model")),
          quant = factor(quant, levels = c("rec", "ssb", "tsb", "catch", "fbar"),
                         labels = c("Recruits", "SSB [t]", "TSB [t]", 
                                    "Catch [t]", "F (ages 1-3)"))) %>%
